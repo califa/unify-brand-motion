@@ -140,6 +140,14 @@ export default makeScene2D(function* (view) {
 - For **circles**, use `createBrandShape(d, d)` then set `radius(d/2)` on all rects (main + echoes)
 - For **looping animations**, make transform functions periodic so the last frame matches the first
 
+**Layer transforms when a shape moves.** A shape sliding from A to B is more compelling when rotation and scale change simultaneously. The echo trail captures all three axes of movement at once, producing a richer smear. A few reliable combinations:
+- **Slide + spin**: rotate 45–90° over the same duration as the position move. A square arriving at its destination while rotating lands with authority.
+- **Slide + scale punch**: scale down slightly (0.85×) during travel, then snap back to 1.0 on arrival — like a shape compressing through space.
+- **Slide + scale in**: if the shape doesn't exist before this move, start at scale 0 and reach scale 1 right as position arrives. The shape appears to materialize at its destination.
+- **Scale out + slide**: invert of the above — shrink to 0 while drifting away. The shape dissolves mid-travel.
+
+Don't layer all three on every move — pick one or two that reinforce the intended feel. A clean slide alone is fine when contrast with the previous/next move calls for restraint.
+
 ### Step 3: Register the scene
 
 Edit `src/project.ts` to import your scene from `animations/`:
