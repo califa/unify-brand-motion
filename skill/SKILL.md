@@ -48,10 +48,30 @@ import {createControlPanel} from '@brand/controls';
 
 ## Setup
 
+### First time on a new machine
+
+Check whether Node.js is installed:
 ```bash
-cd <repo-path>
+node --version  # need v18+
+```
+If missing, install from https://nodejs.org (LTS).
+
+Clone the repo and install dependencies:
+```bash
+git clone https://github.com/califa/unify-motion.git ~/vibe/motion-brand
+cd ~/vibe/motion-brand
 npm install
 npx playwright install chromium
+```
+
+The repo path (`~/vibe/motion-brand`) is the default assumed below. If the user has it elsewhere, use that path instead.
+
+### Already have the repo
+
+```bash
+cd ~/vibe/motion-brand
+npm install       # if you haven't already, or after pulling changes
+npx playwright install chromium  # only needed once
 ```
 
 ## Workflow
