@@ -146,7 +146,6 @@ export default makeScene2D(function* (view) {
 - **Slide + scale in**: if the shape doesn't exist before this move, start at scale 0 and reach scale 1 right as position arrives. The shape appears to materialize at its destination.
 - **Scale out + slide**: invert of the above — shrink to 0 while drifting away. The shape dissolves mid-travel.
 
-Don't layer all three on every move — pick one or two that reinforce the intended feel. A clean slide alone is fine when contrast with the previous/next move calls for restraint.
 
 ### Step 3: Register the scene
 
