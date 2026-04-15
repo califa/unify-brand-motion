@@ -150,86 +150,42 @@ From AE addon, comp duration 6s at 30fps. Times as fractions of duration.
 
 ## Dev Setup
 ```bash
-npm start          # dev server (vite, port 9000/9001)
+npm start          # dev server + editor (vite, port 9001)
 npm run build      # production build
+npm run render     # headless render → output/project.mp4
 
-# Capture a frame for comparison:
+# Render and copy output:
+npm run render -- --output ~/Desktop/animation.mp4
+
+# Capture a single frame for comparison:
 npx tsx scripts/capture-frame.ts 30 output/frame.png --blur --tritone
 ```
 
 ## Controls
-Floating panel in the editor (top-right corner):
-- **Tritone** checkbox — toggles the color shader
-- **Motion Blur** checkbox — toggles 16-sample additive blur
+Tritone and Motion Blur are always on (hardcoded in `controls.ts`). The floating toggle panel was removed — effects are integral to the brand look.
 
-The `setPlayer()` plugin in `project.ts` gives the controls access to `player.requestSeek()` for live updates when toggling.
+## Headless Rendering (`scripts/render.ts`)
+Playwright-based headless renderer that produces MP4 via Motion Canvas's `?render` URL parameter + ffmpeg exporter.
 
-## Next Task: Headless Rendering Workflow
+### How it works
+1. Checks if Vite dev server is running on port 9001; starts one if not
+2. Launches headless Chromium with `--use-gl=angle` (WebGL for Tritone shader)
+3. Navigates to `http://localhost:9001?render` — this triggers Motion Canvas's built-in render pipeline
+4. Watches `output/project.mp4` for completion (file size stable for 2s)
+5. Kills spawned server, closes browser
 
-### Goal
-Render the brand echo effect programmatically without the Motion Canvas editor UI — via CLI or API. This enables:
-- CI/CD pipeline rendering (generate assets on push)
-- Batch rendering with different parameters (colors, timing, shapes)
-- Integration into other tools/services
-
-### What exists already
-
-**Playwright-based frame capture** (`scripts/capture-frame.ts`):
-- Launches headless Chromium, loads the Motion Canvas editor at `localhost:9001`
-- Toggles Tritone/Blur via the control panel checkboxes
-- Seeks to a specific frame via `window.__echoPlayer.requestSeek(frame)`
-- Extracts the canvas at source resolution (1080x1080) via `canvas.toDataURL()`
-- Usage: `npx tsx scripts/capture-frame.ts 30 output/frame.png --blur --tritone`
-- Requires the dev server running (`npm start`)
-
-**Motion Canvas Renderer API** (`@motion-canvas/core` Renderer class):
-- `render(settings)` — renders all frames with an exporter (ffmpeg or image sequence)
-- `renderFrame(settings, time)` — renders a single frame
-- The Renderer is used by the editor's "Render" button internally
-- Requires a browser context (canvas + WebGL for shaders)
-
-**ffmpeg plugin** already configured in `vite.config.ts` and `project.meta` (exporter set to `@motion-canvas/ffmpeg` with `fastStart: true`).
-
-**Player plugin** in `project.ts` stores the player on `window.__echoPlayer` for external access.
-
-### Possible approaches
-
-1. **Playwright automation (extend existing script)**
-   - Already working for single frames
-   - Extend to render all frames as PNG sequence, then ffmpeg to MP4
-   - Pros: no new dependencies, uses the exact same rendering path as the editor
-   - Cons: slow (browser overhead per frame), needs dev server running
-
-2. **Motion Canvas CLI rendering**
-   - Motion Canvas may support headless rendering via its Renderer + Exporter APIs
-   - Would need to programmatically create a Player/Renderer without the editor UI
-   - The challenge: Motion Canvas rendering requires a real canvas + WebGL context (for the Tritone shader), so it can't be purely Node.js — needs a browser or headless GPU context
-   - Could use Playwright to load a minimal page that creates the project and calls `renderer.render()` directly
-
-3. **Custom headless runner**
-   - Create a minimal HTML page (no editor UI) that imports the project, creates a Player + Renderer, and triggers rendering
-   - Serve it via Vite, load in Playwright, wait for render to complete
-   - The ffmpeg exporter communicates with the Vite dev server via WebSocket to pipe frames to ffmpeg — this architecture requires the dev server
-
-4. **Parameterized rendering**
-   - Extend `brand.ts` / scene to accept parameters (colors, timing, shape) via URL params or project variables
-   - The headless script passes different params per render job
-   - Could generate a family of brand assets (different color schemes, different shapes, etc.)
+### CLI options
+- `--output <path>` — copy the rendered MP4 to this location
+- `--port <N>` — dev server port (default: 9001)
+- `--no-server` — don't auto-start the dev server (use an already-running one)
 
 ### Key constraints
-- **WebGL required** — the Tritone shader is a WebGL fragment shader applied via Motion Canvas's experimental `shaders` property. Any headless solution needs a GPU-capable context (headless Chrome with `--use-gl=angle` or similar).
-- **Dev server required for ffmpeg export** — `@motion-canvas/ffmpeg` uses a WebSocket connection to the Vite dev server to pipe frame data to the ffmpeg process. The ffmpeg binary runs server-side, not in the browser.
-- **Shaders need `experimentalFeatures: true`** — already set in `project.ts`.
+- **WebGL required** — Tritone shader needs GPU context (headless Chrome handles this)
+- **Dev server required** — `@motion-canvas/ffmpeg` pipes frames via WebSocket to the Vite dev server
+- **Shaders need `experimentalFeatures: true`** — already set in `project.ts`
 
-### Recommended first step
-Extend the Playwright script to do a full render:
-1. Load the editor headlessly
-2. Toggle controls as needed
-3. Click the editor's "Render" button programmatically (or call `renderer.render()` via `page.evaluate`)
-4. Wait for the ffmpeg export to complete
-5. The output MP4 appears in the project's `output/` directory
-
-This piggybacks on Motion Canvas's existing render pipeline and ffmpeg integration without reinventing anything.
+## Claude Skill
+A Claude skill at `~/.claude/skills/brand-animation/` lets users describe animations in natural language. Claude writes the Motion Canvas scene, registers it in `project.ts`, and renders to MP4. See the skill's `SKILL.md` for the full workflow and API reference.
 
 ## Other Remaining Work
 1. **Fine-tune outer square timing** — scaleFrom is 0 (hidden) but AE has it at 52% from frame 0. May need creative solution to match AE's echo trail timing while keeping it hidden initially.

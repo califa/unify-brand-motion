@@ -1,9 +1,9 @@
 import {makeProject} from '@motion-canvas/core';
-import echo from './scenes/echo?scene';
+import scene from '../animations/washer?scene';
 import {setPlayer} from './controls';
 
 export default makeProject({
-  scenes: [echo],
+  scenes: [scene],
   experimentalFeatures: true,
   plugins: [
     {

@@ -1,4 +1,5 @@
 import {defineConfig} from 'vite';
+import {resolve} from 'path';
 // @ts-ignore - CJS/ESM interop
 import mc from '@motion-canvas/vite-plugin';
 // @ts-ignore - CJS/ESM interop
@@ -11,4 +12,9 @@ export default defineConfig({
     ...motionCanvas(),
     ffmpeg(),
   ],
+  resolve: {
+    alias: {
+      '@brand': resolve(__dirname, 'src'),
+    },
+  },
 });
