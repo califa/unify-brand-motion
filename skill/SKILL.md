@@ -139,6 +139,7 @@ export default makeScene2D(function* (view) {
 - For **position animation**, write a custom `updateWithPosition` function (see `references/scene-example.md` for the pattern) — the default `updateBrandShape` only handles scale + rotation
 - For **circles**, use `createBrandShape(d, d)` then set `radius(d/2)` on all rects (main + echoes)
 - For **looping animations**, make transform functions periodic so the last frame matches the first
+- **Shape limit**: scenes using `updateWithPosition` crash silently above ~8 shapes (the per-shape rect count — 816 rects each — exhausts the WebGL context). Stay at 8 or fewer shapes when using `updateWithPosition`. `updateBrandShape` scenes can use more (grid-snap uses 9).
 
 **Layer transforms when a shape moves.** A shape sliding from A to B is more compelling when rotation and scale change simultaneously. The echo trail captures all three axes of movement at once, producing a richer smear. A few reliable combinations:
 - **Slide + spin**: rotate 45–90° over the same duration as the position move. A square arriving at its destination while rotating lands with authority.
