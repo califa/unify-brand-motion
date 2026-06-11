@@ -28,12 +28,18 @@ const INTERMEDIATE_FILE = resolve(PROJECT_DIR, 'output/project.mov');
 const LOCKFILE = resolve(PROJECT_DIR, 'output/.render.lock');
 const DEFAULT_PORT = 9001;
 
-// ─── Signal handling ─────────────────────────────────────────
+// ─── Process-level state ─────────────────────────────────────
+
+let serverProcess: ChildProcess | null = null;
+let serverCrashed = false;
 
 function setupSignalHandlers() {
   const cleanup = () => {
     restoreFromTransparent();
     releaseLock();
+    if (serverProcess) {
+      try { process.kill(-serverProcess.pid!, 'SIGTERM'); } catch { serverProcess.kill('SIGTERM'); }
+    }
     process.exit(1);
   };
   process.on('SIGINT', cleanup);
@@ -321,8 +327,6 @@ async function waitForServer(port: number, timeoutMs = 30_000): Promise<void> {
   throw new Error(`Dev server not ready after ${timeoutMs / 1000}s on port ${port}`);
 }
 
-let serverCrashed = false;
-
 function startServer(port: number): ChildProcess {
   console.log(`Starting dev server on port ${port}...`);
   const child = spawn(
@@ -489,7 +493,6 @@ async function main() {
     throw new Error('Another render is in progress (lockfile exists). Wait for it to finish or remove output/.render.lock');
   }
 
-  let server: ChildProcess | null = null;
   console.log(`Format: ${format} | Transparent: ${transparent} | Output: ${output}`);
 
   try {
@@ -507,7 +510,7 @@ async function main() {
     // Start server if needed
     const running = await isPortOpen(port);
     if (!running && !noServer) {
-      server = startServer(port);
+      serverProcess = startServer(port);
       await waitForServer(port);
       console.log('Dev server ready.');
     } else if (!running) {
@@ -585,9 +588,10 @@ async function main() {
   } finally {
     restoreFromTransparent();
     releaseLock();
-    if (server) {
+    if (serverProcess) {
       console.log('Stopping dev server...');
-      try { process.kill(-server.pid!, 'SIGTERM'); } catch { server.kill('SIGTERM'); }
+      try { process.kill(-serverProcess.pid!, 'SIGTERM'); } catch { serverProcess.kill('SIGTERM'); }
+      serverProcess = null;
     }
   }
 }
