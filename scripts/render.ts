@@ -32,11 +32,16 @@ const DEFAULT_PORT = 9001;
 
 let serverProcess: ChildProcess | null = null;
 let serverCrashed = false;
+let browserInstance: Awaited<ReturnType<typeof chromium.launch>> | null = null;
 
 function setupSignalHandlers() {
   const cleanup = () => {
     restoreFromTransparent();
     releaseLock();
+    if (browserInstance) {
+      try { browserInstance.close(); } catch {}
+      browserInstance = null;
+    }
     if (serverProcess) {
       try { process.kill(-serverProcess.pid!, 'SIGTERM'); } catch { serverProcess.kill('SIGTERM'); }
     }
@@ -62,6 +67,19 @@ function findFfmpeg(): string {
     if (sys) return sys;
   } catch {}
   throw new Error('ffmpeg not found. Run: npm run setup');
+}
+
+function findFfprobe(): string | null {
+  try {
+    const req = createRequire(resolve(PROJECT_DIR, 'package.json'));
+    const {path: bundled} = req('@ffprobe-installer/ffprobe');
+    if (bundled && existsSync(bundled)) return bundled;
+  } catch {}
+  try {
+    const sys = execSync('which ffprobe', {encoding: 'utf8'}).trim();
+    if (sys) return sys;
+  } catch {}
+  return null;
 }
 
 // ─── CLI args ────────────────────────────────────────────────
@@ -426,11 +444,10 @@ function verifyOutput(path: string, format: Format): void {
 
   // Probe with ffprobe for duration if available
   try {
-    const ffmpeg = findFfmpeg();
-    const ffprobe = ffmpeg.replace(/ffmpeg$/, 'ffprobe');
-    if (existsSync(ffprobe)) {
+    const probePath = findFfprobe();
+    if (probePath) {
       const info = execFileSync(
-        ffprobe,
+        probePath,
         ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', path],
         {encoding: 'utf8'},
       ).trim();
@@ -485,7 +502,7 @@ function convertToFormat(ffmpeg: string, intermediate: string, output: string, f
       break;
 
     case 'gif': {
-      const palette = intermediate.replace('.mov', '-palette.png');
+      const palette = resolve(dirname(intermediate), 'palette.png');
       if (transparent) {
         run(['-y', '-i', intermediate, '-vf', 'palettegen=reserve_transparent=1:stats_mode=diff', palette]);
         run(['-y', '-i', intermediate, '-i', palette, '-lavfi', 'paletteuse=dither=sierra2_4a:alpha_threshold=128', output]);
@@ -547,8 +564,8 @@ async function main() {
 
     // Launch headless browser and trigger render
     console.log('Launching headless browser...');
-    const browser = await chromium.launch({args: ['--use-gl=angle']});
-    const page = await browser.newPage();
+    browserInstance = await chromium.launch({args: ['--use-gl=angle']});
+    const page = await browserInstance.newPage();
     await page.setViewportSize({width: 1280, height: 960});
 
     page.on('console', (msg) => {
@@ -592,7 +609,8 @@ async function main() {
     const movSize = statSync(INTERMEDIATE_FILE).size;
     console.log(`Intermediate render complete: ${(movSize / 1024 / 1024).toFixed(1)} MB`);
 
-    await browser.close();
+    await browserInstance.close();
+    browserInstance = null;
 
     // Restore brand-echo.ts before format conversion
     restoreFromTransparent();
@@ -614,6 +632,10 @@ async function main() {
   } finally {
     restoreFromTransparent();
     releaseLock();
+    if (browserInstance) {
+      try { await browserInstance.close(); } catch {}
+      browserInstance = null;
+    }
     if (serverProcess) {
       console.log('Stopping dev server...');
       try { process.kill(-serverProcess.pid!, 'SIGTERM'); } catch { serverProcess.kill('SIGTERM'); }
