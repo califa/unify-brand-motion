@@ -7,7 +7,8 @@
     "start": "vite",
     "build": "vite build",
     "render": "tsx scripts/render.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "postinstall": "patch-package && npx playwright install chromium",
+    "setup": "bash scripts/setup.sh"
   },
   "keywords": [],
   "author": "",
@@ -19,10 +20,13 @@
     "@motion-canvas/ffmpeg": "^3.17.2",
     "@motion-canvas/ui": "^3.17.2",
     "@motion-canvas/vite-plugin": "^3.17.2",
+    "@types/three": "^0.183.1",
+    "three": "^0.183.2",
     "typescript": "^6.0.2",
     "vite": "^5.4.21"
   },
   "devDependencies": {
+    "patch-package": "^8.0.1",
     "playwright": "^1.59.1",
     "tsx": "^4.21.0"
   }

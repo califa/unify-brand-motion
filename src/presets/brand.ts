@@ -108,6 +108,21 @@ export const EASING = {
   outer: [0.2, 0, 0.11, 1] as readonly [number, number, number, number],
 } as const;
 
+// ─── Render mode ─────────────────────────────────────────────
+function isTransparentRender(): boolean {
+  try {
+    return typeof window !== 'undefined' &&
+      new URLSearchParams(window.location.search).has('transparent');
+  } catch { return false; }
+}
+
+export const RENDER_BG   = COLORS.background;
+export const RENDER_FILL = '#ffffff';
+
+export function getRenderBg(): string {
+  return isTransparentRender() ? 'rgba(0,0,0,0)' : COLORS.background;
+}
+
 // ─── Logo Animation Timing ───────────────────────────────────
 // Two-square logo: inner square scales up + rotates, outer square follows.
 export const LOGO = {

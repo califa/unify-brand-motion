@@ -8,11 +8,15 @@
 import {Node, Rect} from '@motion-canvas/2d';
 import tritoneShader from '../shaders/tritone.glsl';
 import alphaCorrectShader from '../shaders/alpha-correct.glsl';
-import {COLORS, TRITONE, STROKE, ECHO, MOTION_BLUR} from './brand';
+import {COLORS, TRITONE, STROKE, ECHO, MOTION_BLUR, RENDER_BG, RENDER_FILL, getRenderBg} from './brand';
 import {getControls} from '../controls';
 
-export {COLORS} from './brand';
-export const BACKGROUND = COLORS.background;
+export {COLORS, RENDER_FILL} from './brand';
+export const BACKGROUND = RENDER_BG;
+
+export function applyBackground(view: any) {
+  view.fill(getRenderBg());
+}
 
 // ─── Tritone Shader ──────────────────────────────────────────
 
@@ -73,7 +77,7 @@ export function createBrandShape(
     const main = new Rect({
       width,
       height,
-      fill: '#ffffff',
+      fill: RENDER_FILL,
       stroke: STROKE.color,
       lineWidth: STROKE.width,
     });
@@ -84,7 +88,7 @@ export function createBrandShape(
       const rect = new Rect({
         width,
         height,
-        fill: '#ffffff',
+        fill: RENDER_FILL,
         stroke: STROKE.color,
         lineWidth: STROKE.width,
         opacity: echoIntensities[i],

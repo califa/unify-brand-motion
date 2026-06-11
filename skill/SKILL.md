@@ -11,15 +11,31 @@ description: |
 
 # Brand Animation Generator
 
-Create brand animations by writing Motion Canvas scenes with the Echo + Tritone + Motion Blur effect pipeline. User describes the animation → you write the scene → render to MP4.
+Create brand animations by writing Motion Canvas scenes with the Echo + Tritone + Motion Blur effect pipeline. User describes the animation → you write the scene → render to video.
 
-## What This Produces
+## Output Formats
 
-- 1080x1080 30fps MP4 video
-- Shapes rendered with 50-copy echo trail (ghosting/motion trail effect)
-- Tritone color mapping: dark brown-black (#241E20) → red-orange (#FE3C01) → warm white (#FFFEF4)
-- 16-sample motion blur (additive `lighter` blending)
-- Warm cream background (#FFFEF4)
+| Format | Extension | Alpha | Use case |
+|--------|-----------|-------|----------|
+| MP4    | `.mp4`    | No    | Default. Web, Slack, presentations. CRF 32 optimized. |
+| WebM   | `.webm`   | Yes   | Transparent background overlays. Use with `--transparent`. |
+| GIF    | `.gif`    | Yes*  | Inline previews, docs. 1-bit alpha with `--transparent`. |
+| MOV    | `.mov`    | Yes   | Lossless ProRes 4444 intermediate. Editing/compositing. |
+
+## Project Location
+
+The repo may be at any path. To find it:
+```bash
+# Check common locations
+for dir in ~/vibe/motion-brand ~/motion-brand; do
+  [ -f "$dir/package.json" ] && echo "$dir" && break
+done
+```
+
+If the repo isn't found, run setup:
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/califa/unify-motion/main/scripts/setup.sh)
+```
 
 ## Project Structure
 
@@ -35,8 +51,11 @@ motion-brand/
   animations/           ← GENERATED SCENES (gitignored)
     *.tsx                  scene files you create
     *.meta                 auto-generated metadata
-  scripts/render.ts     ← headless render CLI
-  output/               ← rendered MP4s (gitignored)
+  scripts/
+    render.ts           ← headless render CLI
+    setup.sh            ← one-command setup for new machines
+  patches/              ← ffmpeg exporter patch (auto-applied by npm install)
+  output/               ← rendered videos (gitignored)
 ```
 
 Animations go in `animations/`, engine code lives in `src/`. The `@brand/` import alias resolves to `src/`, so animation files import like:
@@ -48,30 +67,19 @@ import {createControlPanel} from '@brand/controls';
 
 ## Setup
 
-### First time on a new machine
+### First time (one command)
 
-Check whether Node.js is installed:
 ```bash
-node --version  # need v18+
-```
-If missing, install from https://nodejs.org (LTS).
-
-Clone the repo and install dependencies:
-```bash
-git clone https://github.com/califa/unify-motion.git ~/vibe/motion-brand
-cd ~/vibe/motion-brand
-npm install
-npx playwright install chromium
+bash <(curl -fsSL https://raw.githubusercontent.com/califa/unify-motion/main/scripts/setup.sh)
 ```
 
-The repo path (`~/vibe/motion-brand`) is the default assumed below. If the user has it elsewhere, use that path instead.
+This installs Homebrew, Node.js, ffmpeg, clones the repo, installs npm dependencies, patches the ffmpeg exporter, and installs Playwright Chromium. Nothing else needed.
 
 ### Already have the repo
 
 ```bash
-cd ~/vibe/motion-brand
-npm install       # if you haven't already, or after pulling changes
-npx playwright install chromium  # only needed once
+cd <repo-path>
+npm install   # postinstall auto-patches ffmpeg + installs Chromium
 ```
 
 ## Workflow
@@ -91,7 +99,7 @@ Create a scene file at `animations/<name>.tsx`. Read `references/scene-example.m
 
 ```tsx
 import {makeScene2D} from '@motion-canvas/2d';
-import {createBrandShape, updateBrandShape, BACKGROUND, TRITONE_SHADER} from '@brand/presets/brand-echo';
+import {createBrandShape, updateBrandShape, BACKGROUND, TRITONE_SHADER, applyBackground} from '@brand/presets/brand-echo';
 import {CANVAS, cubicBezier} from '@brand/presets/brand';
 import {createControlPanel} from '@brand/controls';
 
@@ -116,7 +124,7 @@ function getTransform(frame: number) {
 
 export default makeScene2D(function* (view) {
   createControlPanel();
-  view.fill(BACKGROUND);
+  applyBackground(view);  // auto-handles transparent mode
 
   const shape = createBrandShape(500, 500);
   view.add(shape.group);
@@ -130,13 +138,15 @@ export default makeScene2D(function* (view) {
 ```
 
 **Key rules:**
+- Use `applyBackground(view)` instead of `view.fill(BACKGROUND)` — this automatically supports transparent rendering mode
 - Each shape needs its own `createBrandShape(width, height)` call
 - The transform function receives a fractional frame number and returns `{scale: number, rotation: number}`
 - `scale` of 0 hides the shape; use this before the animation starts
 - Apply `TRITONE_SHADER` to all sub-frames at the start
 - `yield` advances one frame — the loop must run for `TOTAL_FRAMES` iterations
 - Use `cubicBezier(x1, y1, x2, y2, t)` for easing. Brand defaults: `EASING.inner` (sharp S-curve), `EASING.outer` (fast attack)
-- For **position animation**, write a custom `updateWithPosition` function (see `references/scene-example.md` for the pattern) — the default `updateBrandShape` only handles scale + rotation
+- For **position animation**, copy `updateWithPosition` from `references/brand-api.md` — the default `updateBrandShape` only handles scale + rotation
+- For **SVG path data** (logos, custom shapes), use `Path` from `@motion-canvas/2d` with a custom echo system — see `references/brand-api.md` "Animating SVG Paths" for the full copy-paste template. No need to read the codebase to figure this out.
 - For **circles**, use `createBrandShape(d, d)` then set `radius(d/2)` on all rects (main + echoes)
 - For **looping animations**, make transform functions periodic so the last frame matches the first
 - **Shape limit**: scenes using `updateWithPosition` crash silently above ~8 shapes (the per-shape rect count — 816 rects each — exhausts the WebGL context). Stay at 8 or fewer shapes when using `updateWithPosition`. `updateBrandShape` scenes can use more (grid-snap uses 9).
@@ -170,14 +180,22 @@ export default makeProject({
 ### Step 4: Render
 
 ```bash
+# Default: MP4 with CRF 32 optimization
 npm run render
-# Output: output/project.mp4
 
-# Copy to a specific location:
-npm run render -- --output ~/Desktop/animation.mp4
+# Specific format
+npm run render -- --format webm --transparent
+npm run render -- --format gif
+npm run render -- --format mov
+
+# Custom output path (format inferred from extension)
+npm run render -- --output ~/Desktop/animation.webm --transparent
+
+# All options
+npm run render -- --format mp4 --output ~/Desktop/logo.mp4 --port 9001
 ```
 
-The render script auto-starts the dev server, launches headless Chromium, triggers the render via Motion Canvas's `?render` URL parameter, waits for ffmpeg to produce the MP4, then cleans up.
+The render script auto-starts the dev server, launches headless Chromium, triggers the render via Motion Canvas's `?render` URL parameter, produces a ProRes 4444 intermediate, converts to the target format with ffmpeg, then cleans up.
 
 ### Step 5: Preview (optional)
 
