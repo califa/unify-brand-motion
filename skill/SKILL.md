@@ -7,101 +7,60 @@ description: |
   **Triggers:** "brand animation", "render brand", "logo animation", "motion brand",
   "brand video", "brand effect", "brand motion", "motion asset",
   "unify animation", "unify effect", "unify motion"
-  Use when the user wants to create or render a brand-aligned motion graphic.
+  Use this skill whenever someone wants to create any kind of motion graphic, video asset,
+  animated logo, loading animation, or visual effect for the Unify brand — even if they
+  don't say "brand animation" explicitly. If the request involves shapes moving with trails
+  or echoes, or any video/GIF output of geometric animation, this is the right skill.
 ---
 
 # Brand Animation Generator
 
-Create brand animations by writing Motion Canvas scenes with the Echo + Tritone + Motion Blur effect pipeline. User describes the animation → you write the scene → render to video.
+User describes an animation → you write a Motion Canvas scene → render to video.
 
-## Output Formats
+## Before You Write Any Code
 
-| Format | Extension | Alpha | Use case |
-|--------|-----------|-------|----------|
-| MP4    | `.mp4`    | No    | Default. Web, Slack, presentations. CRF 32 optimized. |
-| WebM   | `.webm`   | Yes   | Transparent background overlays. Use with `--transparent`. |
-| GIF    | `.gif`    | Yes*  | Inline previews, docs. 1-bit alpha with `--transparent`. |
-| MOV    | `.mov`    | Yes   | Lossless ProRes 4444 intermediate. Editing/compositing. |
+The echo trail and motion blur are the visual signature of this system. They work best as **punctuation on decisive movements**, not constant motion. Internalize these principles — they should shape every scene you write:
 
-## Project Location
+- **Animate in → hold → animate out.** Most frames should be at rest. A 4-second clip: ~20 frames animating in, ~80 static, ~20 animating out.
+- **Scale from 0 to appear.** Objects should arrive, not fade in. Start at `scale: 0`, snap up with a fast easing curve.
+- **One shape moves at a time.** Simultaneous motion dilutes the trails into noise. Stagger entrances.
+- **Avoid continuous motion** (perpetual spin, orbiting). If it must loop, use discrete snaps separated by stillness.
 
-The repo may be at any path. Before doing anything else, find it:
-```bash
-MOTION_BRAND=""
-for dir in ~/vibe/motion-brand ~/motion-brand /tmp/motion-brand; do
-  [ -f "$dir/package.json" ] && MOTION_BRAND="$dir" && break
-done
+The orange trail is an exclamation mark. Use it sparingly.
 
-if [ -z "$MOTION_BRAND" ]; then
-  # Not found — run setup (works in both Claude Code and Cowork)
-  bash <(curl -fsSL https://raw.githubusercontent.com/califa/unify-brand-motion/main/scripts/setup.sh)
-  MOTION_BRAND="${MOTION_BRAND_DIR:-$HOME/vibe/motion-brand}"
-fi
-
-cd "$MOTION_BRAND"
-```
-
-All subsequent commands assume you've cd'd into the repo. This works identically in Claude Code, Cowork, and standalone terminal use.
-
-## Project Structure
-
-```
-motion-brand/
-  src/                  ← ENGINE (committed)
-    presets/brand.ts       colors, timing, easing constants
-    presets/brand-echo.ts  echo shape builder + shaders
-    shaders/               WebGL tritone + alpha correction
-    controls.ts            effect state (always-on)
-    project.ts             scene registration (edit import path here)
-    scenes/echo.tsx        reference example scene
-  animations/           ← GENERATED SCENES (gitignored)
-    *.tsx                  scene files you create
-    *.meta                 auto-generated metadata
-  scripts/
-    render.ts           ← headless render CLI
-    setup.sh            ← one-command setup for new machines
-  patches/              ← ffmpeg exporter patch (auto-applied by npm install)
-  output/               ← rendered videos (gitignored)
-```
-
-Animations go in `animations/`, engine code lives in `src/`. The `@brand/` import alias resolves to `src/`, so animation files import like:
-```typescript
-import {createBrandShape, ...} from '@brand/presets/brand-echo';
-import {CANVAS, cubicBezier} from '@brand/presets/brand';
-import {createControlPanel} from '@brand/controls';
-```
-
-## Setup
-
-### First time (one command)
+## Find the Repo
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/califa/unify-brand-motion/main/scripts/setup.sh)
+# Run this first — all subsequent commands use $MB as the working directory
+MB=""; for d in ~/vibe/motion-brand ~/motion-brand /tmp/motion-brand; do [ -f "$d/package.json" ] && MB="$d" && break; done
+if [ -z "$MB" ]; then bash <(curl -fsSL https://raw.githubusercontent.com/califa/unify-brand-motion/main/scripts/setup.sh); MB="${MOTION_BRAND_DIR:-$HOME/vibe/motion-brand}"; fi
 ```
 
-This installs Homebrew, Node.js, ffmpeg, clones the repo, installs npm dependencies, patches the ffmpeg exporter, and installs Playwright Chromium. Nothing else needed.
+If setup runs, warn the user it may take a few minutes (installs Homebrew, Node, ffmpeg, Chromium).
 
-### Already have the repo
-
-```bash
-cd <repo-path>
-npm install   # postinstall auto-patches ffmpeg + installs Chromium
-```
+**Important:** `cd` doesn't persist between bash calls in Claude Code. Always prefix commands with `cd "$MB" &&` or use absolute paths.
 
 ## Workflow
 
-### Step 1: Understand the animation request
+### Step 1: Choose the right pattern
 
-The user describes shapes and their motion. Common elements:
-- **Shapes**: squares/rectangles (Rect), circles (Rect with radius), lines, polygons
-- **Transforms**: scale (grow/shrink), rotation (spin), position (slide)
-- **Timing**: when things start, how long they animate, what easing to use
+Match the user's request to a code pattern:
+
+| User wants... | Pattern | Reference |
+|---------------|---------|-----------|
+| Shape(s) that scale/rotate in place | `createBrandShape` + `updateBrandShape` | Inline template below |
+| Shape(s) that move across the canvas | `createBrandShape` + `updateWithPosition` (copy from `references/brand-api.md`) | "updateWithPosition" section |
+| Shape at a fixed position, animates scale/rotation | `createBrandShape` + `group.position()` + `updateBrandShape` | "Static group placement" in `references/brand-api.md` |
+| SVG logo or custom path shape | Custom `createPathShape` + `updatePathShape` (copy from `references/brand-api.md`) | "Animating SVG Paths" section |
+| Circle | `createBrandShape(d, d)` then set `radius(d/2)` on main + echoes | "Making a circle" in `references/brand-api.md` |
+
+Only read the reference files when you need the advanced patterns (position animation, SVG paths, circles). The inline template below is sufficient for simple scale+rotation animations.
+
+**Limits:** ≤8 shapes with `updateWithPosition` (816 Rect nodes each — more exhausts WebGL). `updateBrandShape` scenes can use more.
 
 ### Step 2: Write the scene
 
-Create a scene file at `animations/<name>.tsx`. Read `references/scene-example.md` for a complete annotated template and `references/brand-api.md` for the full API.
-
-**Minimal scene structure:**
+Create `$MB/animations/<name>.tsx`:
 
 ```tsx
 import {makeScene2D} from '@motion-canvas/2d';
@@ -141,34 +100,26 @@ export default makeScene2D(function* (view) {
 });
 ```
 
-**Key rules:**
-- Use `applyBackground(view)` instead of `view.fill(BACKGROUND)` — this automatically supports transparent rendering mode
-- Each shape needs its own `createBrandShape(width, height)` call
-- The transform function receives a fractional frame number and returns `{scale: number, rotation: number}`
-- `scale` of 0 hides the shape; use this before the animation starts
-- Apply `TRITONE_SHADER` to all sub-frames at the start
-- `yield` advances one frame — the loop must run for `TOTAL_FRAMES` iterations
-- Use `cubicBezier(x1, y1, x2, y2, t)` for easing. Brand defaults: `EASING.inner` (sharp S-curve), `EASING.outer` (fast attack)
-- For **position animation**, copy `updateWithPosition` from `references/brand-api.md` — the default `updateBrandShape` only handles scale + rotation
-- For **SVG path data** (logos, custom shapes), use `Path` from `@motion-canvas/2d` with a custom echo system — see `references/brand-api.md` "Animating SVG Paths" for the full copy-paste template. No need to read the codebase to figure this out.
-- For **circles**, use `createBrandShape(d, d)` then set `radius(d/2)` on all rects (main + echoes)
-- For **looping animations**, make transform functions periodic so the last frame matches the first
-- **Shape limit**: scenes using `updateWithPosition` crash silently above ~8 shapes (the per-shape rect count — 816 rects each — exhausts the WebGL context). Stay at 8 or fewer shapes when using `updateWithPosition`. `updateBrandShape` scenes can use more (grid-snap uses 9).
+**Rules:**
+- `applyBackground(view)` — supports `--transparent` mode. Never use `view.fill(BACKGROUND)` directly.
+- Each shape needs its own `createBrandShape(width, height)`.
+- Transform functions receive fractional frame numbers → return `{scale, rotation}`.
+- `scale: 0` hides the shape. Use this before the animation starts.
+- `yield` advances one frame. The loop must run exactly `TOTAL_FRAMES` iterations.
+- Apply `TRITONE_SHADER` to all sub-frames before the frame loop.
+- Easing: `cubicBezier(0.89, 0, 0.11, 1, t)` (sharp S-curve) or `cubicBezier(0.2, 0, 0.11, 1, t)` (fast attack).
 
-**Layer transforms when a shape moves.** A shape sliding from A to B is more compelling when rotation and scale change simultaneously. The echo trail captures all three axes of movement at once, producing a richer smear. A few reliable combinations:
-- **Slide + spin**: rotate 45–90° over the same duration as the position move. A square arriving at its destination while rotating lands with authority.
-- **Slide + scale punch**: scale down slightly (0.85×) during travel, then snap back to 1.0 on arrival — like a shape compressing through space.
-- **Slide + scale in**: if the shape doesn't exist before this move, start at scale 0 and reach scale 1 right as position arrives. The shape appears to materialize at its destination.
-- **Scale out + slide**: invert of the above — shrink to 0 while drifting away. The shape dissolves mid-travel.
-
+**Layer transforms for richer motion.** A shape sliding from A to B is more compelling when rotation and scale change simultaneously:
+- **Slide + spin**: rotate 45–90° during the position move.
+- **Slide + scale punch**: scale to 0.85× during travel, snap back to 1.0 on arrival.
+- **Scale in from 0**: shape materializes at its destination.
 
 ### Step 3: Register the scene
 
-Edit `src/project.ts` to import your scene from `animations/`:
-
-```typescript
+```bash
+cd "$MB" && cat > src/project.ts << 'EOF'
 import {makeProject} from '@motion-canvas/core';
-import scene from '../animations/my-scene?scene';
+import scene from '../animations/<name>?scene';
 import {setPlayer} from './controls';
 
 export default makeProject({
@@ -179,76 +130,55 @@ export default makeProject({
     player(player) { setPlayer(player); },
   }],
 });
+EOF
 ```
+
+Replace `<name>` with your scene filename (without `.tsx`). The `?scene` suffix is required.
 
 ### Step 4: Render
 
 ```bash
-# Default: MP4 with CRF 32 optimization
-npm run render
-
-# Specific format
-npm run render -- --format webm --transparent
-npm run render -- --format gif
-npm run render -- --format mov
-
-# Custom output path (format inferred from extension)
-npm run render -- --output ~/Desktop/animation.webm --transparent
-
-# All options
-npm run render -- --format mp4 --output ~/Desktop/logo.mp4 --port 9001
+cd "$MB" && npm run render -- --output ~/Desktop/animation.mp4
 ```
 
-The render script auto-starts the dev server, launches headless Chromium, triggers the render via Motion Canvas's `?render` URL parameter, produces a ProRes 4444 intermediate, converts to the target format with ffmpeg, then cleans up.
+| Format | Command | Notes |
+|--------|---------|-------|
+| MP4 (default) | `npm run render` | CRF 32 optimized, no alpha |
+| WebM + transparency | `npm run render -- --format webm --transparent` | VP9, alpha channel |
+| GIF | `npm run render -- --format gif` | Two-pass palette |
+| GIF + transparency | `npm run render -- --format gif --transparent` | 1-bit alpha |
+| ProRes MOV | `npm run render -- --format mov` | Lossless, full alpha |
 
-**Transparency note:** `--transparent` only works with webm, gif, and mov. MP4 has no alpha channel — the render script warns if you try. For transparent backgrounds, use `--format webm --transparent`.
-
-### Step 5: Deliver the output
-
-**Detect your environment** and deliver accordingly:
-
+In Cowork, render to `$OUTPUTS_DIR` instead of Desktop:
 ```bash
-# Check if running in Cowork (outputs directory exists)
-if [ -d "$OUTPUTS_DIR" ]; then
-  # Cowork: render directly to the outputs directory — file appears as downloadable artifact
-  npm run render -- --output "$OUTPUTS_DIR/animation.mp4"
-elif [ -d "$HOME/Desktop" ]; then
-  # Claude Code / CLI: render to Desktop
-  npm run render -- --output ~/Desktop/animation.mp4
-else
-  # Fallback: render to repo output/
-  npm run render
-fi
+cd "$MB" && npm run render -- --output "$OUTPUTS_DIR/animation.mp4"
 ```
 
-- **Cowork**: Use `$OUTPUTS_DIR` (set by the Cowork runtime). The file appears in the session sidebar as a downloadable artifact — no extra step needed.
-- **Claude Code / CLI**: Render to `~/Desktop/` or any user-specified path. Tell the user where the file is.
-- **Either**: You can always use `--output <path>` to put the file wherever the user asks.
+### Step 5: When the render fails
 
-### Step 6: Preview (optional)
+The render script validates TypeScript and runs preflight checks automatically. If it still fails:
 
-For interactive preview with timeline scrubbing:
+1. **Read the error output.** Lines prefixed `[browser:error]` or `[browser:warning]` are from the scene running in headless Chrome.
+2. **Fix the scene.** Common causes: wrong import path, missing `?scene` suffix, too many shapes, typo in transform function.
+3. **Re-render.** The script cleans up automatically — just run the render command again.
+4. **If it's an environment issue** (missing Chromium, port conflict), run `cd "$MB" && npm run render -- --preflight` to diagnose.
 
-```bash
-npm start
-# Open http://localhost:9001 in a browser
-```
+See the troubleshooting table below for specific error messages.
 
-## Design Principles
+## Output Formats
 
-**Objects should be mostly static.** The echo trail and motion blur effects are the visual signature of this system — they work best as punctuation on discrete, decisive movements. An object that animates in, holds its position, then animates out reads as intentional and powerful. An object in constant motion means the orange trails are always present everywhere, which makes them invisible noise instead of a highlight.
+| Format | Extension | Alpha | Use case |
+|--------|-----------|-------|----------|
+| MP4    | `.mp4`    | No    | Default. Web, Slack, presentations. CRF 32 optimized. |
+| WebM   | `.webm`   | Yes   | Transparent background overlays. Use with `--transparent`. |
+| GIF    | `.gif`    | Yes*  | Inline previews, docs. 1-bit alpha with `--transparent`. |
+| MOV    | `.mov`    | Yes   | Lossless ProRes 4444. Editing/compositing. |
 
-Concrete guidance:
-- **Animate in → hold → animate out.** Spend the majority of frames at rest. A 4-second clip might use 20 frames to animate in, 80 frames static, 20 frames to animate out.
-- **Avoid looping continuous motion** (e.g. perpetual spinning or orbiting). If something must loop, give it clear beats — discrete snaps or pulses separated by stillness.
-- **Use scale=0 before an object enters.** Objects should appear to arrive, not fade in. Start at scale 0 (invisible), then scale up quickly with a snappy easing curve.
-- **One shape moving at a time** is generally more effective than multiple shapes in simultaneous motion — it focuses the trails and avoids visual chaos.
-
-The orange trail is an exclamation mark. Use it sparingly.
+`--transparent` has no effect with MP4 (no alpha channel). The render script warns.
 
 ## Customizing the Brand System
 
-Edit `src/presets/brand.ts` to change the visual system:
+Edit `src/presets/brand.ts`:
 
 | Setting | Location | Default |
 |---------|----------|---------|
@@ -262,33 +192,28 @@ Edit `src/presets/brand.ts` to change the visual system:
 | Echo decay | `ECHO.decay` | `0.93` |
 | Blur samples | `MOTION_BLUR.samples` | `16` |
 
-The Tritone mapping (`TRITONE.shadows/midtones/highlights`) derives from COLORS automatically.
-
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| Blank/white output | Too many shapes with `updateWithPosition` (>8 shapes exhausts WebGL context) | Reduce to ≤8 shapes, or use `updateBrandShape` (scale+rotation only) which is lighter |
-| Render never starts | Port 9001 occupied by another process | Kill the other process or use `--port 9002` |
-| Shader errors in console | Missing `experimentalFeatures: true` in project.ts | Ensure project.ts has `experimentalFeatures: true` in `makeProject()` |
-| "Render did not start" | Scene has a runtime error (check `[browser]` lines above) | Fix the error logged by the browser, then retry |
-| TypeScript errors before render | Scene file has type errors | Fix the errors shown — the validator runs `tsc` before spending time on a render |
-| "Another render in progress" | Previous render crashed without cleaning up | Check if another render is actually running; if not, delete `output/.render.lock` |
-| Transparent mode didn't work | Scene uses `view.fill(BACKGROUND)` directly | Replace with `applyBackground(view)` — the old pattern bypasses transparent mode |
-| Output file is tiny/corrupt | ffmpeg conversion failed silently | Check the ffmpeg stderr output; ensure the intermediate .mov exists and is valid |
-| `.meta` file errors | Stale .meta files from a renamed scene | Delete `animations/<name>.meta` and re-render |
+| Blank/white output | Too many shapes with `updateWithPosition` (>8) | Reduce to ≤8 shapes, or use `updateBrandShape` |
+| Render never starts | Port 9001 occupied | Kill the other process or use `--port 9002` |
+| Shader errors in console | Missing `experimentalFeatures: true` | Check project.ts |
+| "Render did not start" | Scene runtime error | Fix the `[browser:error]` lines, re-render |
+| TypeScript errors | Scene has type errors | Fix them — tsc runs before render to catch these fast |
+| "Another render in progress" | Stale lockfile | Delete `output/.render.lock` if no render is running |
+| Transparent mode didn't work | Scene uses `view.fill(BACKGROUND)` | Replace with `applyBackground(view)` |
+| Output tiny/corrupt | ffmpeg conversion failed | Check stderr; verify intermediate .mov exists |
+| `.meta` file errors | Stale metadata | Delete `animations/<name>.meta` and re-render |
 
 ### Preflight check
 
-Run `npm run render -- --preflight` to verify the environment without rendering. This checks:
-- node_modules and Vite are installed
-- Playwright Chromium is available
-- ffmpeg is found (bundled or system)
-- The ffmpeg exporter patch is applied
-- project.ts has a valid scene import and the referenced scene file exists
-- The animations/ directory exists (creates it if missing)
-- No stale transparent patch is left in brand-echo.ts
+```bash
+cd "$MB" && npm run render -- --preflight
+```
+
+Verifies: node_modules, Chromium, ffmpeg, patch, scene import, animations/ dir, no stale transparent patch.
 
 ## Architecture
 
-For deep context on the rendering pipeline (echo stacking, tritone shader, additive blur, what worked and what didn't), read `HANDOFF.md` in the repo root.
+For deep context on the rendering pipeline (echo stacking, tritone shader, additive blur), read `HANDOFF.md` in the repo root.
