@@ -119,7 +119,8 @@ export default makeScene2D(function* (view) {
 
 **Rules:**
 - `applyBackground(view)` — supports `--transparent` mode. Never use `view.fill(BACKGROUND)` directly.
-- Each shape needs its own `createBrandShape(width, height)`.
+- Each shape needs its own `createBrandShape(width, height)`. For multiple shapes, add them in back-to-front order and stagger their `animStart` values (e.g., shape 1 starts at frame 10, shape 2 at frame 25).
+- Frame numbers = seconds × FPS. At 30fps: frame 10 ≈ 0.33s, frame 30 = 1s, frame 60 = 2s.
 - Transform functions receive fractional frame numbers → return `{scale, rotation}`.
 - `scale: 0` hides the shape. Use this before the animation starts.
 - `yield` advances one frame. The loop must run exactly `TOTAL_FRAMES` iterations.
@@ -158,13 +159,17 @@ Replace `<name>` with your scene filename (without `.tsx`). The `?scene` suffix 
 cd <repo-path> && npm run render -- --output ~/Desktop/animation.mp4
 ```
 
-| Format | Command | Notes |
-|--------|---------|-------|
-| MP4 (default) | `npm run render` | CRF 32 optimized, no alpha |
-| WebM + transparency | `npm run render -- --format webm --transparent` | VP9, alpha channel |
-| GIF | `npm run render -- --format gif` | Two-pass palette |
-| GIF + transparency | `npm run render -- --format gif --transparent` | 1-bit alpha |
-| ProRes MOV | `npm run render -- --format mov` | Lossless, full alpha |
+All render commands must be prefixed with `cd <repo-path> &&`.
+
+| Format | Flags | Notes |
+|--------|-------|-------|
+| MP4 (default) | *(none)* | CRF 32 optimized, no alpha |
+| WebM + transparency | `--format webm --transparent` | VP9, alpha channel |
+| GIF | `--format gif` | Two-pass palette |
+| GIF + transparency | `--format gif --transparent` | 1-bit alpha |
+| ProRes MOV | `--format mov` | Lossless, full alpha |
+
+`--transparent` has no effect with MP4 (no alpha channel).
 
 In Cowork, render to `$OUTPUTS_DIR` instead of Desktop:
 ```bash
