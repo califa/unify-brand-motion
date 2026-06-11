@@ -30,15 +30,32 @@ The orange trail is an exclamation mark. Use it sparingly.
 
 ## Find the Repo
 
+Run this to locate the repo. Store the resulting path — you'll need it for every subsequent command:
+
 ```bash
-# Run this first — all subsequent commands use $MB as the working directory
-MB=""; for d in ~/vibe/motion-brand ~/motion-brand /tmp/motion-brand; do [ -f "$d/package.json" ] && MB="$d" && break; done
-if [ -z "$MB" ]; then bash <(curl -fsSL https://raw.githubusercontent.com/califa/unify-brand-motion/main/scripts/setup.sh); MB="${MOTION_BRAND_DIR:-$HOME/vibe/motion-brand}"; fi
+for d in ~/vibe/motion-brand ~/motion-brand /tmp/motion-brand; do [ -f "$d/package.json" ] && echo "$d" && break; done
 ```
 
-If setup runs, warn the user it may take a few minutes (installs Homebrew, Node, ffmpeg, Chromium).
+If nothing is printed, the repo isn't set up yet. Warn the user it'll take a few minutes, then run:
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/califa/unify-brand-motion/main/scripts/setup.sh)
+```
+The default install path is `~/vibe/motion-brand`.
 
-**Important:** `cd` doesn't persist between bash calls in Claude Code. Always prefix commands with `cd "$MB" &&` or use absolute paths.
+**Important:** `cd` and variables don't persist between bash calls in Claude Code. In every command, use the absolute path directly: `cd /Users/.../motion-brand && npm run render ...`
+
+## Repo Layout
+
+```
+animations/   ← YOUR SCENES go here (gitignored). Write .tsx files here.
+src/          ← ENGINE (committed). Don't modify unless customizing the brand system.
+  presets/      brand.ts (colors, timing), brand-echo.ts (shape builder + shaders)
+  project.ts    scene registration — edit the import path here
+scripts/      ← render.ts (headless renderer), setup.sh (one-command install)
+output/       ← rendered videos land here (gitignored)
+```
+
+The `@brand/` import alias resolves to `src/`.
 
 ## Workflow
 
@@ -60,7 +77,7 @@ Only read the reference files when you need the advanced patterns (position anim
 
 ### Step 2: Write the scene
 
-Create `$MB/animations/<name>.tsx`:
+Create `<repo-path>/animations/<name>.tsx`:
 
 ```tsx
 import {makeScene2D} from '@motion-canvas/2d';
@@ -117,7 +134,7 @@ export default makeScene2D(function* (view) {
 ### Step 3: Register the scene
 
 ```bash
-cd "$MB" && cat > src/project.ts << 'EOF'
+cd <repo-path> && cat > src/project.ts << 'EOF'
 import {makeProject} from '@motion-canvas/core';
 import scene from '../animations/<name>?scene';
 import {setPlayer} from './controls';
@@ -138,7 +155,7 @@ Replace `<name>` with your scene filename (without `.tsx`). The `?scene` suffix 
 ### Step 4: Render
 
 ```bash
-cd "$MB" && npm run render -- --output ~/Desktop/animation.mp4
+cd <repo-path> && npm run render -- --output ~/Desktop/animation.mp4
 ```
 
 | Format | Command | Notes |
@@ -151,7 +168,7 @@ cd "$MB" && npm run render -- --output ~/Desktop/animation.mp4
 
 In Cowork, render to `$OUTPUTS_DIR` instead of Desktop:
 ```bash
-cd "$MB" && npm run render -- --output "$OUTPUTS_DIR/animation.mp4"
+cd <repo-path> && npm run render -- --output "$OUTPUTS_DIR/animation.mp4"
 ```
 
 ### Step 5: When the render fails
@@ -161,22 +178,13 @@ The render script validates TypeScript and runs preflight checks automatically. 
 1. **Read the error output.** Lines prefixed `[browser:error]` or `[browser:warning]` are from the scene running in headless Chrome.
 2. **Fix the scene.** Common causes: wrong import path, missing `?scene` suffix, too many shapes, typo in transform function.
 3. **Re-render.** The script cleans up automatically — just run the render command again.
-4. **If it's an environment issue** (missing Chromium, port conflict), run `cd "$MB" && npm run render -- --preflight` to diagnose.
+4. **If it's an environment issue** (missing Chromium, port conflict), run `cd <repo-path> && npm run render -- --preflight` to diagnose.
 
 See the troubleshooting table below for specific error messages.
 
-## Output Formats
-
-| Format | Extension | Alpha | Use case |
-|--------|-----------|-------|----------|
-| MP4    | `.mp4`    | No    | Default. Web, Slack, presentations. CRF 32 optimized. |
-| WebM   | `.webm`   | Yes   | Transparent background overlays. Use with `--transparent`. |
-| GIF    | `.gif`    | Yes*  | Inline previews, docs. 1-bit alpha with `--transparent`. |
-| MOV    | `.mov`    | Yes   | Lossless ProRes 4444. Editing/compositing. |
-
-`--transparent` has no effect with MP4 (no alpha channel). The render script warns.
-
 ## Customizing the Brand System
+
+Only modify these if the user explicitly asks for non-standard colors or dimensions. The defaults are the official Unify brand identity.
 
 Edit `src/presets/brand.ts`:
 
@@ -209,7 +217,7 @@ Edit `src/presets/brand.ts`:
 ### Preflight check
 
 ```bash
-cd "$MB" && npm run render -- --preflight
+cd <repo-path> && npm run render -- --preflight
 ```
 
 Verifies: node_modules, Chromium, ffmpeg, patch, scene import, animations/ dir, no stale transparent patch.
