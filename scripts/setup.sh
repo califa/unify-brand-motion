@@ -86,6 +86,13 @@ npm install 2>&1 | tail -3
 
 # ── Verify ────────────────────────────────────────────────────
 
+info "Running preflight checks..."
+if npx tsx scripts/render.ts --preflight 2>&1; then
+  ok "Preflight passed."
+else
+  warn "Preflight had issues — see output above. Render may still work."
+fi
+
 echo ""
 ok "Motion Brand is ready!"
 echo ""

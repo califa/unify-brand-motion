@@ -17,7 +17,7 @@
  */
 
 import {chromium} from 'playwright';
-import {spawn, execSync, ChildProcess} from 'child_process';
+import {spawn, execSync, execFileSync, ChildProcess} from 'child_process';
 import {existsSync, statSync, copyFileSync, unlinkSync, mkdirSync, readFileSync, writeFileSync} from 'fs';
 import {dirname, resolve, extname} from 'path';
 import {createConnection} from 'net';
@@ -27,6 +27,18 @@ const PROJECT_DIR = resolve(import.meta.dirname, '..');
 const INTERMEDIATE_FILE = resolve(PROJECT_DIR, 'output/project.mov');
 const LOCKFILE = resolve(PROJECT_DIR, 'output/.render.lock');
 const DEFAULT_PORT = 9001;
+
+// ─── Signal handling ─────────────────────────────────────────
+
+function setupSignalHandlers() {
+  const cleanup = () => {
+    restoreFromTransparent();
+    releaseLock();
+    process.exit(1);
+  };
+  process.on('SIGINT', cleanup);
+  process.on('SIGTERM', cleanup);
+}
 
 type Format = 'mp4' | 'webm' | 'gif' | 'mov';
 const VALID_FORMATS = new Set<Format>(['mp4', 'webm', 'gif', 'mov']);
@@ -297,6 +309,8 @@ async function waitForServer(port: number, timeoutMs = 30_000): Promise<void> {
   throw new Error(`Dev server not ready after ${timeoutMs / 1000}s on port ${port}`);
 }
 
+let serverCrashed = false;
+
 function startServer(port: number): ChildProcess {
   console.log(`Starting dev server on port ${port}...`);
   const child = spawn(
@@ -312,6 +326,12 @@ function startServer(port: number): ChildProcess {
     const line = d.toString().trim();
     if (line) console.log(`  [vite] ${line}`);
   });
+  child.on('exit', (code) => {
+    if (code !== null && code !== 0) {
+      serverCrashed = true;
+      console.error(`  Vite server exited with code ${code}`);
+    }
+  });
   return child;
 }
 
@@ -322,6 +342,9 @@ async function waitForOutput(timeoutMs = 300_000): Promise<void> {
   let lastSize = -1;
   let stableAt = 0;
   while (Date.now() - start < timeoutMs) {
+    if (serverCrashed) {
+      throw new Error('Vite dev server crashed during render. Check the [vite] output above.');
+    }
     if (existsSync(INTERMEDIATE_FILE)) {
       const size = statSync(INTERMEDIATE_FILE).size;
       if (size > 0 && size === lastSize) {
@@ -359,13 +382,14 @@ function verifyOutput(path: string, format: Format): void {
     throw new Error(`Output file suspiciously small (${size} bytes): ${path}. Likely corrupt.`);
   }
 
-  // Probe with ffmpeg for duration if available
+  // Probe with ffprobe for duration if available
   try {
     const ffmpeg = findFfmpeg();
     const ffprobe = ffmpeg.replace(/ffmpeg$/, 'ffprobe');
     if (existsSync(ffprobe)) {
-      const info = execSync(
-        `"${ffprobe}" -v error -show_entries format=duration -of csv=p=0 "${path}"`,
+      const info = execFileSync(
+        ffprobe,
+        ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', path],
         {encoding: 'utf8'},
       ).trim();
       const duration = parseFloat(info);
@@ -389,9 +413,8 @@ function convertToFormat(ffmpeg: string, intermediate: string, output: string, f
   if (existsSync(output)) unlinkSync(output);
 
   const run = (args: string[]) => {
-    const cmd = `"${ffmpeg}" ${args.join(' ')}`;
-    console.log(`  $ ${cmd}`);
-    execSync(cmd, {stdio: 'inherit'});
+    console.log(`  $ ffmpeg ${args.join(' ')}`);
+    execFileSync(ffmpeg, args, {stdio: 'inherit'});
   };
 
   switch (format) {
@@ -401,52 +424,31 @@ function convertToFormat(ffmpeg: string, intermediate: string, output: string, f
 
     case 'mp4':
       run([
-        '-y', '-i', `"${intermediate}"`,
+        '-y', '-i', intermediate,
         '-c:v', 'libx264', '-crf', '32',
         '-pix_fmt', 'yuv420p',
         '-movflags', '+faststart',
-        `"${output}"`,
+        output,
       ]);
       break;
 
     case 'webm':
-      if (transparent) {
-        run([
-          '-y', '-i', `"${intermediate}"`,
-          '-c:v', 'libvpx-vp9', '-crf', '32', '-b:v', '0',
-          '-pix_fmt', 'yuva420p',
-          '-auto-alt-ref', '0',
-          `"${output}"`,
-        ]);
-      } else {
-        run([
-          '-y', '-i', `"${intermediate}"`,
-          '-c:v', 'libvpx-vp9', '-crf', '32', '-b:v', '0',
-          '-pix_fmt', 'yuv420p',
-          `"${output}"`,
-        ]);
-      }
+      run([
+        '-y', '-i', intermediate,
+        '-c:v', 'libvpx-vp9', '-crf', '32', '-b:v', '0',
+        '-pix_fmt', transparent ? 'yuva420p' : 'yuv420p',
+        ...(transparent ? ['-auto-alt-ref', '0'] : []),
+        output,
+      ]);
       break;
 
     case 'gif': {
       const palette = intermediate.replace('.mov', '-palette.png');
       if (transparent) {
-        run([
-          '-y', '-i', `"${intermediate}"`,
-          '-vf', '"palettegen=reserve_transparent=1:stats_mode=diff"',
-          `"${palette}"`,
-        ]);
-        run([
-          '-y', '-i', `"${intermediate}"`, '-i', `"${palette}"`,
-          '-lavfi', '"paletteuse=dither=sierra2_4a:alpha_threshold=128"',
-          `"${output}"`,
-        ]);
+        run(['-y', '-i', intermediate, '-vf', 'palettegen=reserve_transparent=1:stats_mode=diff', palette]);
+        run(['-y', '-i', intermediate, '-i', palette, '-lavfi', 'paletteuse=dither=sierra2_4a:alpha_threshold=128', output]);
       } else {
-        run([
-          '-y', '-i', `"${intermediate}"`,
-          '-vf', '"split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse=dither=sierra2_4a"',
-          `"${output}"`,
-        ]);
+        run(['-y', '-i', intermediate, '-vf', 'split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse=dither=sierra2_4a', output]);
       }
       if (existsSync(palette)) unlinkSync(palette);
       break;
@@ -457,6 +459,7 @@ function convertToFormat(ffmpeg: string, intermediate: string, output: string, f
 // ─── Main ────────────────────────────────────────────────────
 
 async function main() {
+  setupSignalHandlers();
   const {output, format, port, noServer, transparent, preflightOnly} = parseArgs();
 
   // Always run preflight
@@ -508,10 +511,13 @@ async function main() {
     await page.setViewportSize({width: 1280, height: 960});
 
     page.on('console', (msg) => {
-      if (msg.type() === 'error') console.log(`  [browser] ${msg.text()}`);
+      const type = msg.type();
+      if (type === 'error' || type === 'warning') {
+        console.log(`  [browser:${type}] ${msg.text()}`);
+      }
     });
     page.on('pageerror', (err) => {
-      console.log(`  [browser] ${err.message}`);
+      console.log(`  [browser:error] ${err.message}`);
     });
 
     const url = `http://localhost:${port}?render`;
@@ -523,6 +529,9 @@ async function main() {
     const startTime = Date.now();
     let renderStarted = false;
     while (Date.now() - startTime < 60_000) {
+      if (serverCrashed) {
+        throw new Error('Vite dev server crashed before render started. Check the [vite] output above.');
+      }
       if (existsSync(INTERMEDIATE_FILE) && statSync(INTERMEDIATE_FILE).size > 100) {
         renderStarted = true;
         break;

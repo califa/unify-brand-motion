@@ -99,7 +99,7 @@ Create a scene file at `animations/<name>.tsx`. Read `references/scene-example.m
 
 ```tsx
 import {makeScene2D} from '@motion-canvas/2d';
-import {createBrandShape, updateBrandShape, BACKGROUND, TRITONE_SHADER, applyBackground} from '@brand/presets/brand-echo';
+import {createBrandShape, updateBrandShape, TRITONE_SHADER, applyBackground} from '@brand/presets/brand-echo';
 import {CANVAS, cubicBezier} from '@brand/presets/brand';
 import {createControlPanel} from '@brand/controls';
 
