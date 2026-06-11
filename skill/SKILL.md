@@ -25,18 +25,23 @@ Create brand animations by writing Motion Canvas scenes with the Echo + Tritone 
 
 ## Project Location
 
-The repo may be at any path. To find it:
+The repo may be at any path. Before doing anything else, find it:
 ```bash
-# Check common locations
-for dir in ~/vibe/motion-brand ~/motion-brand; do
-  [ -f "$dir/package.json" ] && echo "$dir" && break
+MOTION_BRAND=""
+for dir in ~/vibe/motion-brand ~/motion-brand /tmp/motion-brand; do
+  [ -f "$dir/package.json" ] && MOTION_BRAND="$dir" && break
 done
+
+if [ -z "$MOTION_BRAND" ]; then
+  # Not found — run setup (works in both Claude Code and Cowork)
+  bash <(curl -fsSL https://raw.githubusercontent.com/califa/unify-brand-motion/main/scripts/setup.sh)
+  MOTION_BRAND="${MOTION_BRAND_DIR:-$HOME/vibe/motion-brand}"
+fi
+
+cd "$MOTION_BRAND"
 ```
 
-If the repo isn't found, run setup:
-```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/califa/unify-brand-motion/main/scripts/setup.sh)
-```
+All subsequent commands assume you've cd'd into the repo. This works identically in Claude Code, Cowork, and standalone terminal use.
 
 ## Project Structure
 
@@ -200,15 +205,25 @@ The render script auto-starts the dev server, launches headless Chromium, trigge
 
 ### Step 5: Deliver the output
 
-After rendering, copy the file to a user-accessible location:
+**Detect your environment** and deliver accordingly:
+
 ```bash
-cp output/project.mp4 ~/Desktop/animation.mp4
+# Check if running in Cowork (outputs directory exists)
+if [ -d "$OUTPUTS_DIR" ]; then
+  # Cowork: render directly to the outputs directory — file appears as downloadable artifact
+  npm run render -- --output "$OUTPUTS_DIR/animation.mp4"
+elif [ -d "$HOME/Desktop" ]; then
+  # Claude Code / CLI: render to Desktop
+  npm run render -- --output ~/Desktop/animation.mp4
+else
+  # Fallback: render to repo output/
+  npm run render
+fi
 ```
-Or render directly to the destination:
-```bash
-npm run render -- --output ~/Desktop/animation.mp4
-```
-Tell the user where the file is so they can open it.
+
+- **Cowork**: Use `$OUTPUTS_DIR` (set by the Cowork runtime). The file appears in the session sidebar as a downloadable artifact — no extra step needed.
+- **Claude Code / CLI**: Render to `~/Desktop/` or any user-specified path. Tell the user where the file is.
+- **Either**: You can always use `--output <path>` to put the file wherever the user asks.
 
 ### Step 6: Preview (optional)
 
