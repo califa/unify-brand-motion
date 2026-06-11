@@ -5,7 +5,8 @@ description: |
   Accepts natural language descriptions of abstract shape animations, writes the scene code,
   and renders to MP4.
   **Triggers:** "brand animation", "render brand", "logo animation", "motion brand",
-  "brand video", "animate", "motion asset", "brand motion"
+  "brand video", "brand effect", "brand motion", "motion asset",
+  "unify animation", "unify effect", "unify motion"
   Use when the user wants to create or render a brand-aligned motion graphic.
 ---
 
@@ -34,7 +35,7 @@ done
 
 If the repo isn't found, run setup:
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/califa/unify-motion/main/scripts/setup.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/califa/unify-brand-motion/main/scripts/setup.sh)
 ```
 
 ## Project Structure
@@ -70,7 +71,7 @@ import {createControlPanel} from '@brand/controls';
 ### First time (one command)
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/califa/unify-motion/main/scripts/setup.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/califa/unify-brand-motion/main/scripts/setup.sh)
 ```
 
 This installs Homebrew, Node.js, ffmpeg, clones the repo, installs npm dependencies, patches the ffmpeg exporter, and installs Playwright Chromium. Nothing else needed.

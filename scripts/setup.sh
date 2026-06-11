@@ -3,7 +3,7 @@
 # One-command setup for motion-brand on macOS.
 #
 # Run from anywhere:
-#   bash <(curl -fsSL https://raw.githubusercontent.com/califa/unify-motion/main/scripts/setup.sh)
+#   bash <(curl -fsSL https://raw.githubusercontent.com/califa/unify-brand-motion/main/scripts/setup.sh)
 #
 # Or if you already have the repo:
 #   npm run setup
@@ -67,7 +67,7 @@ ok "ffmpeg: $(ffmpeg -version 2>/dev/null | head -1 | awk '{print $3}')"
 # ── Clone or update repo ─────────────────────────────────────
 
 REPO_DIR="${MOTION_BRAND_DIR:-$HOME/vibe/motion-brand}"
-REPO_URL="https://github.com/califa/unify-motion.git"
+REPO_URL="https://github.com/califa/unify-brand-motion.git"
 
 if [[ -d "$REPO_DIR/.git" ]]; then
   info "Updating repo at $REPO_DIR..."
