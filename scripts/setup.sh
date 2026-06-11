@@ -32,9 +32,13 @@ if ! git --version &>/dev/null; then
   info "Git not found. Installing Xcode Command Line Tools..."
   info "(A dialog may appear — click 'Install' and wait for it to finish.)"
   xcode-select --install 2>/dev/null || true
-  # Wait for installation
+  waited=0
   until git --version &>/dev/null; do
     sleep 5
+    waited=$((waited + 5))
+    if [[ $waited -ge 600 ]]; then
+      fail "Xcode CLT installation timed out after 10 minutes. Run 'xcode-select --install' manually, then re-run this script."
+    fi
   done
   ok "Xcode CLT installed."
 fi
