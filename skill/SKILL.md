@@ -3,7 +3,7 @@ name: brand-animation
 description: |
   Generate brand animations with Echo + Tritone + Motion Blur effects using Motion Canvas.
   Accepts natural language descriptions of abstract shape animations, writes the scene code,
-  and renders to MP4.
+  and renders to MP4/WebM/GIF/MOV.
   **Triggers:** "brand animation", "render brand", "logo animation", "motion brand",
   "brand video", "brand effect", "brand motion", "motion asset",
   "unify animation", "unify effect", "unify motion"
@@ -270,7 +270,8 @@ Run `npm run render -- --preflight` to verify the environment without rendering.
 - Playwright Chromium is available
 - ffmpeg is found (bundled or system)
 - The ffmpeg exporter patch is applied
-- project.ts has a valid scene import
+- project.ts has a valid scene import and the referenced scene file exists
+- The animations/ directory exists (creates it if missing)
 - No stale transparent patch is left in brand-echo.ts
 
 ## Architecture
