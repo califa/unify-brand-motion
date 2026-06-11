@@ -13,6 +13,7 @@
  *   --output <path>              Output file path (default: output/project.<format>)
  *   --port <N>                   Dev server port (default: 9001)
  *   --no-server                  Don't auto-start the dev server
+ *   --preflight                  Run environment checks only, don't render
  */
 
 import {chromium} from 'playwright';
@@ -24,6 +25,7 @@ import {createRequire} from 'module';
 
 const PROJECT_DIR = resolve(import.meta.dirname, '..');
 const INTERMEDIATE_FILE = resolve(PROJECT_DIR, 'output/project.mov');
+const LOCKFILE = resolve(PROJECT_DIR, 'output/.render.lock');
 const DEFAULT_PORT = 9001;
 
 type Format = 'mp4' | 'webm' | 'gif' | 'mov';
@@ -32,13 +34,11 @@ const VALID_FORMATS = new Set<Format>(['mp4', 'webm', 'gif', 'mov']);
 // ─── ffmpeg path ─────────────────────────────────────────────
 
 function findFfmpeg(): string {
-  // Prefer the bundled ffmpeg from @ffmpeg-installer (guaranteed codecs)
   try {
     const req = createRequire(resolve(PROJECT_DIR, 'package.json'));
     const {path: bundled} = req('@ffmpeg-installer/ffmpeg');
     if (bundled && existsSync(bundled)) return bundled;
   } catch {}
-  // Fall back to system ffmpeg
   try {
     const sys = execSync('which ffmpeg', {encoding: 'utf8'}).trim();
     if (sys) return sys;
@@ -55,6 +55,7 @@ function parseArgs() {
   let port = DEFAULT_PORT;
   let noServer = false;
   let transparent = false;
+  let preflightOnly = false;
 
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
@@ -76,22 +77,173 @@ function parseArgs() {
       case '--transparent':
         transparent = true;
         break;
+      case '--preflight':
+        preflightOnly = true;
+        break;
     }
   }
 
-  // Infer format from output extension if not explicitly set
   if (!format && output) {
     const ext = extname(output).slice(1).toLowerCase() as Format;
     if (VALID_FORMATS.has(ext)) format = ext;
   }
   if (!format) format = 'mp4';
 
-  // Default output path
   if (!output) {
     output = resolve(PROJECT_DIR, `output/project.${format}`);
   }
 
-  return {output, format, port, noServer, transparent};
+  return {output, format, port, noServer, transparent, preflightOnly};
+}
+
+// ─── Preflight checks ───────────────────────────────────────
+
+function preflight(): {ok: boolean; errors: string[]} {
+  const errors: string[] = [];
+
+  // node_modules
+  if (!existsSync(resolve(PROJECT_DIR, 'node_modules'))) {
+    errors.push('node_modules missing. Run: npm install');
+  }
+
+  // Vite binary
+  if (!existsSync(resolve(PROJECT_DIR, 'node_modules/.bin/vite'))) {
+    errors.push('Vite not installed. Run: npm install');
+  }
+
+  // Playwright Chromium
+  try {
+    execSync('npx playwright install --dry-run chromium 2>&1', {cwd: PROJECT_DIR, encoding: 'utf8'});
+  } catch {
+    // Dry-run not supported on all versions; check for the browser directory instead
+    try {
+      const output = execSync('node -e "const {chromium}=require(\'playwright\');console.log(chromium.executablePath())"', {
+        cwd: PROJECT_DIR, encoding: 'utf8',
+      }).trim();
+      if (!existsSync(output)) {
+        errors.push(`Chromium not found at ${output}. Run: npx playwright install chromium`);
+      }
+    } catch {
+      errors.push('Cannot locate Playwright Chromium. Run: npx playwright install chromium');
+    }
+  }
+
+  // ffmpeg (for format conversion)
+  try { findFfmpeg(); } catch {
+    errors.push('ffmpeg not found. Run: npm run setup');
+  }
+
+  // Patch applied
+  const ffmpegServer = resolve(PROJECT_DIR, 'node_modules/@motion-canvas/ffmpeg/lib/server/FFmpegExporterServer.js');
+  if (existsSync(ffmpegServer)) {
+    const content = readFileSync(ffmpegServer, 'utf8');
+    if (!content.includes('prores_ks')) {
+      errors.push('ffmpeg exporter patch not applied. Run: npx patch-package');
+    }
+  }
+
+  // project.ts has a scene import
+  const projectTs = resolve(PROJECT_DIR, 'src/project.ts');
+  if (existsSync(projectTs)) {
+    const content = readFileSync(projectTs, 'utf8');
+    if (!content.includes('?scene')) {
+      errors.push('src/project.ts does not import any scene (missing ?scene import)');
+    }
+  } else {
+    errors.push('src/project.ts is missing');
+  }
+
+  // Stale transparent patch check
+  const brandEcho = resolve(PROJECT_DIR, 'src/presets/brand-echo.ts');
+  if (existsSync(brandEcho)) {
+    const content = readFileSync(brandEcho, 'utf8');
+    if (content.includes("BACKGROUND = 'rgba(0,0,0,0)'")) {
+      errors.push('brand-echo.ts has a stale transparent patch. Restoring...');
+      const restored = content.replace(
+        /export const BACKGROUND = 'rgba\(0,0,0,0\)';/,
+        'export const BACKGROUND = RENDER_BG;',
+      );
+      writeFileSync(brandEcho, restored);
+      // Remove this error since we fixed it
+      errors.pop();
+      console.log('  Auto-restored stale transparent patch in brand-echo.ts');
+    }
+  }
+
+  return {ok: errors.length === 0, errors};
+}
+
+// ─── TypeScript validation ──────────────────────────────────
+
+function validateScene(): boolean {
+  const projectTs = resolve(PROJECT_DIR, 'src/project.ts');
+  const content = readFileSync(projectTs, 'utf8');
+  const match = content.match(/from\s+['"]\.\.\/animations\/([^?'"]+)\?scene['"]/);
+  if (!match) {
+    console.log('  Warning: could not find scene import in project.ts');
+    return true;
+  }
+
+  const sceneName = match[1];
+  const scenePath = resolve(PROJECT_DIR, 'animations', `${sceneName}.tsx`);
+  if (!existsSync(scenePath)) {
+    console.error(`  Scene file not found: animations/${sceneName}.tsx`);
+    return false;
+  }
+
+  console.log(`Validating scene: animations/${sceneName}.tsx`);
+  try {
+    execSync(
+      `npx tsc --noEmit --project tsconfig.json`,
+      {cwd: PROJECT_DIR, encoding: 'utf8', stdio: 'pipe'},
+    );
+    console.log('  TypeScript validation passed.');
+    return true;
+  } catch (e: any) {
+    const output = (e.stdout || '') + (e.stderr || '');
+    // Only fail if the ACTIVE scene file has errors — ignore errors in other animation files
+    const sceneFile = `animations/${sceneName}.tsx`;
+    const sceneErrors = output.split('\n').filter((l: string) => l.includes(sceneFile) && l.includes('error TS'));
+    if (sceneErrors.length > 0) {
+      console.error(`  TypeScript errors in ${sceneFile}:`);
+      for (const line of sceneErrors.slice(0, 15)) console.error(`    ${line}`);
+      return false;
+    }
+    console.log('  Scene validation passed.');
+    return true;
+  }
+}
+
+// ─── Render lock ─────────────────────────────────────────────
+
+function acquireLock(): boolean {
+  mkdirSync(dirname(LOCKFILE), {recursive: true});
+  if (existsSync(LOCKFILE)) {
+    const lockContent = readFileSync(LOCKFILE, 'utf8').trim();
+    const lockPid = parseInt(lockContent, 10);
+    if (lockPid && isProcessRunning(lockPid)) {
+      return false;
+    }
+    // Stale lock from a dead process — remove it
+    unlinkSync(LOCKFILE);
+  }
+  writeFileSync(LOCKFILE, String(process.pid));
+  return true;
+}
+
+function releaseLock() {
+  try {
+    if (existsSync(LOCKFILE)) {
+      const content = readFileSync(LOCKFILE, 'utf8').trim();
+      if (content === String(process.pid)) {
+        unlinkSync(LOCKFILE);
+      }
+    }
+  } catch {}
+}
+
+function isProcessRunning(pid: number): boolean {
+  try { process.kill(pid, 0); return true; } catch { return false; }
 }
 
 // ─── Transparent background ──────────────────────────────────
@@ -101,7 +253,6 @@ let brandEchoBackup: string | null = null;
 
 function patchForTransparent() {
   brandEchoBackup = readFileSync(BRAND_ECHO_PATH, 'utf8');
-  // Replace the static BACKGROUND export with transparent
   const patched = brandEchoBackup.replace(
     /export const BACKGROUND = RENDER_BG;/,
     "export const BACKGROUND = 'rgba(0,0,0,0)';",
@@ -119,7 +270,6 @@ function restoreFromTransparent() {
   if (brandEchoBackup) {
     writeFileSync(BRAND_ECHO_PATH, brandEchoBackup);
     brandEchoBackup = null;
-    console.log('  Restored brand-echo.ts');
   }
 }
 
@@ -187,12 +337,55 @@ async function waitForOutput(timeoutMs = 300_000): Promise<void> {
   throw new Error(`Render did not complete within ${timeoutMs / 1000}s`);
 }
 
+// ─── Output verification ────────────────────────────────────
+
+function verifyOutput(path: string, format: Format): void {
+  if (!existsSync(path)) {
+    throw new Error(`Output file not created: ${path}`);
+  }
+  const size = statSync(path).size;
+  if (size === 0) {
+    throw new Error(`Output file is empty (0 bytes): ${path}`);
+  }
+
+  // Minimum viable sizes per format
+  const minSizes: Record<Format, number> = {
+    mp4: 1024,   // A valid MP4 with at least a few frames
+    webm: 512,
+    gif: 256,
+    mov: 4096,
+  };
+  if (size < minSizes[format]) {
+    throw new Error(`Output file suspiciously small (${size} bytes): ${path}. Likely corrupt.`);
+  }
+
+  // Probe with ffmpeg for duration if available
+  try {
+    const ffmpeg = findFfmpeg();
+    const ffprobe = ffmpeg.replace(/ffmpeg$/, 'ffprobe');
+    if (existsSync(ffprobe)) {
+      const info = execSync(
+        `"${ffprobe}" -v error -show_entries format=duration -of csv=p=0 "${path}"`,
+        {encoding: 'utf8'},
+      ).trim();
+      const duration = parseFloat(info);
+      if (isNaN(duration) || duration < 0.1) {
+        throw new Error(`Output file has invalid duration (${info}s): ${path}`);
+      }
+      console.log(`  Verified: ${(size / 1024).toFixed(0)} KB, ${duration.toFixed(1)}s`);
+      return;
+    }
+  } catch (e: any) {
+    if (e.message?.includes('invalid duration') || e.message?.includes('suspiciously small')) throw e;
+  }
+
+  console.log(`  Verified: ${(size / 1024).toFixed(0)} KB`);
+}
+
 // ─── Format conversion ──────────────────────────────────────
 
 function convertToFormat(ffmpeg: string, intermediate: string, output: string, format: Format, transparent: boolean) {
   mkdirSync(dirname(output), {recursive: true});
-
-  // If the output file already exists, remove it (ffmpeg -y also handles this, but be safe)
   if (existsSync(output)) unlinkSync(output);
 
   const run = (args: string[]) => {
@@ -264,12 +457,32 @@ function convertToFormat(ffmpeg: string, intermediate: string, output: string, f
 // ─── Main ────────────────────────────────────────────────────
 
 async function main() {
-  const {output, format, port, noServer, transparent} = parseArgs();
-  let server: ChildProcess | null = null;
+  const {output, format, port, noServer, transparent, preflightOnly} = parseArgs();
 
+  // Always run preflight
+  console.log('Running preflight checks...');
+  const check = preflight();
+  if (!check.ok) {
+    for (const err of check.errors) console.error(`  FAIL: ${err}`);
+    process.exit(1);
+  }
+  console.log('  All checks passed.');
+  if (preflightOnly) return;
+
+  // Acquire render lock
+  if (!acquireLock()) {
+    throw new Error('Another render is in progress (lockfile exists). Wait for it to finish or remove output/.render.lock');
+  }
+
+  let server: ChildProcess | null = null;
   console.log(`Format: ${format} | Transparent: ${transparent} | Output: ${output}`);
 
   try {
+    // Validate scene TypeScript before spending time on render
+    if (!validateScene()) {
+      throw new Error('Scene has TypeScript errors. Fix them before rendering.');
+    }
+
     // Clean previous intermediate
     if (existsSync(INTERMEDIATE_FILE)) unlinkSync(INTERMEDIATE_FILE);
 
@@ -320,7 +533,7 @@ async function main() {
     if (!renderStarted) {
       const state = await page.evaluate(() => document.title);
       console.log(`  Page title: ${state}`);
-      throw new Error('Render did not start producing frames within 60s');
+      throw new Error('Render did not start producing frames within 60s. Check browser console errors above.');
     }
 
     console.log('Rendering... (waiting for output to stabilize)');
@@ -331,7 +544,7 @@ async function main() {
 
     await browser.close();
 
-    // Restore brand-echo.ts before format conversion (server may still be watching)
+    // Restore brand-echo.ts before format conversion
     restoreFromTransparent();
 
     // Convert to target format
@@ -339,16 +552,18 @@ async function main() {
       console.log('Output is already ProRes MOV.');
     } else if (format === 'mov') {
       copyFileSync(INTERMEDIATE_FILE, output);
-      console.log(`Copied to: ${output}`);
     } else {
       const ffmpeg = findFfmpeg();
       console.log(`Converting to ${format}...`);
       convertToFormat(ffmpeg, INTERMEDIATE_FILE, output, format, transparent);
-      const finalSize = statSync(output).size;
-      console.log(`Done: ${output} (${(finalSize / 1024 / 1024).toFixed(1)} MB)`);
     }
+
+    // Verify output
+    verifyOutput(output, format);
+
   } finally {
     restoreFromTransparent();
+    releaseLock();
     if (server) {
       console.log('Stopping dev server...');
       try { process.kill(-server.pid!, 'SIGTERM'); } catch { server.kill('SIGTERM'); }
@@ -358,6 +573,7 @@ async function main() {
 
 main().catch((e) => {
   restoreFromTransparent();
+  releaseLock();
   console.error(e.message || e);
   process.exit(1);
 });

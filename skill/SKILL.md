@@ -236,6 +236,30 @@ Edit `src/presets/brand.ts` to change the visual system:
 
 The Tritone mapping (`TRITONE.shadows/midtones/highlights`) derives from COLORS automatically.
 
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Blank/white output | Too many shapes with `updateWithPosition` (>8 shapes exhausts WebGL context) | Reduce to ≤8 shapes, or use `updateBrandShape` (scale+rotation only) which is lighter |
+| Render never starts | Port 9001 occupied by another process | Kill the other process or use `--port 9002` |
+| Shader errors in console | Missing `experimentalFeatures: true` in project.ts | Ensure project.ts has `experimentalFeatures: true` in `makeProject()` |
+| "Render did not start" | Scene has a runtime error (check `[browser]` lines above) | Fix the error logged by the browser, then retry |
+| TypeScript errors before render | Scene file has type errors | Fix the errors shown — the validator runs `tsc` before spending time on a render |
+| "Another render in progress" | Previous render crashed without cleaning up | Check if another render is actually running; if not, delete `output/.render.lock` |
+| Transparent mode didn't work | Scene uses `view.fill(BACKGROUND)` directly | Replace with `applyBackground(view)` — the old pattern bypasses transparent mode |
+| Output file is tiny/corrupt | ffmpeg conversion failed silently | Check the ffmpeg stderr output; ensure the intermediate .mov exists and is valid |
+| `.meta` file errors | Stale .meta files from a renamed scene | Delete `animations/<name>.meta` and re-render |
+
+### Preflight check
+
+Run `npm run render -- --preflight` to verify the environment without rendering. This checks:
+- node_modules and Vite are installed
+- Playwright Chromium is available
+- ffmpeg is found (bundled or system)
+- The ffmpeg exporter patch is applied
+- project.ts has a valid scene import
+- No stale transparent patch is left in brand-echo.ts
+
 ## Architecture
 
 For deep context on the rendering pipeline (echo stacking, tritone shader, additive blur, what worked and what didn't), read `HANDOFF.md` in the repo root.

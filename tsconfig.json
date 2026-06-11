@@ -8,7 +8,10 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "strict": true,
-    "outDir": "./dist"
+    "outDir": "./dist",
+    "paths": {
+      "@brand/*": ["./src/*"]
+    }
   },
-  "include": ["src"]
+  "include": ["src", "animations"]
 }
