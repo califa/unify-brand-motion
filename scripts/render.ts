@@ -115,6 +115,10 @@ function parseArgs() {
     output = resolve(PROJECT_DIR, `output/project.${format}`);
   }
 
+  if (transparent && format === 'mp4') {
+    console.log('  Warning: --transparent has no effect with MP4 (no alpha channel). Use --format webm or gif for transparency.');
+  }
+
   return {output, format, port, noServer, transparent, preflightOnly};
 }
 
@@ -372,6 +376,7 @@ async function waitForOutput(timeoutMs = 300_000): Promise<void> {
   const start = Date.now();
   let lastSize = -1;
   let stableAt = 0;
+  let lastProgressLog = 0;
   while (Date.now() - start < timeoutMs) {
     if (serverCrashed) {
       throw new Error('Vite dev server crashed during render. Check the [vite] output above.');
@@ -384,6 +389,12 @@ async function waitForOutput(timeoutMs = 300_000): Promise<void> {
       } else {
         lastSize = size;
         stableAt = 0;
+        const now = Date.now();
+        if (now - lastProgressLog > 5_000) {
+          const elapsed = ((now - start) / 1000).toFixed(0);
+          console.log(`  Rendering... ${(size / 1024 / 1024).toFixed(1)} MB written (${elapsed}s)`);
+          lastProgressLog = now;
+        }
       }
     }
     await new Promise(r => setTimeout(r, 500));

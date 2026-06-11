@@ -102,7 +102,6 @@ Create a scene file at `animations/<name>.tsx`. Read `references/scene-example.m
 import {makeScene2D} from '@motion-canvas/2d';
 import {createBrandShape, updateBrandShape, TRITONE_SHADER, applyBackground} from '@brand/presets/brand-echo';
 import {CANVAS, cubicBezier} from '@brand/presets/brand';
-import {createControlPanel} from '@brand/controls';
 
 const FPS = CANVAS.fps;
 const DURATION = 4; // seconds
@@ -124,8 +123,7 @@ function getTransform(frame: number) {
 }
 
 export default makeScene2D(function* (view) {
-  createControlPanel();
-  applyBackground(view);  // auto-handles transparent mode
+  applyBackground(view);
 
   const shape = createBrandShape(500, 500);
   view.add(shape.group);
@@ -198,7 +196,21 @@ npm run render -- --format mp4 --output ~/Desktop/logo.mp4 --port 9001
 
 The render script auto-starts the dev server, launches headless Chromium, triggers the render via Motion Canvas's `?render` URL parameter, produces a ProRes 4444 intermediate, converts to the target format with ffmpeg, then cleans up.
 
-### Step 5: Preview (optional)
+**Transparency note:** `--transparent` only works with webm, gif, and mov. MP4 has no alpha channel — the render script warns if you try. For transparent backgrounds, use `--format webm --transparent`.
+
+### Step 5: Deliver the output
+
+After rendering, copy the file to a user-accessible location:
+```bash
+cp output/project.mp4 ~/Desktop/animation.mp4
+```
+Or render directly to the destination:
+```bash
+npm run render -- --output ~/Desktop/animation.mp4
+```
+Tell the user where the file is so they can open it.
+
+### Step 6: Preview (optional)
 
 For interactive preview with timeline scrubbing:
 
