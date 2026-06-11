@@ -160,12 +160,27 @@ function preflight(): {ok: boolean; errors: string[]} {
     }
   }
 
-  // project.ts has a scene import
+  // animations/ directory exists
+  const animDir = resolve(PROJECT_DIR, 'animations');
+  if (!existsSync(animDir)) {
+    mkdirSync(animDir, {recursive: true});
+    console.log('  Created animations/ directory');
+  }
+
+  // project.ts has a scene import and the scene file exists
   const projectTs = resolve(PROJECT_DIR, 'src/project.ts');
   if (existsSync(projectTs)) {
     const content = readFileSync(projectTs, 'utf8');
     if (!content.includes('?scene')) {
       errors.push('src/project.ts does not import any scene (missing ?scene import)');
+    } else {
+      const sceneMatch = content.match(/from\s+['"]\.\.\/animations\/([^?'"]+)\?scene['"]/);
+      if (sceneMatch) {
+        const scenePath = resolve(PROJECT_DIR, 'animations', `${sceneMatch[1]}.tsx`);
+        if (!existsSync(scenePath)) {
+          errors.push(`Scene file missing: animations/${sceneMatch[1]}.tsx — create it first or update the import in src/project.ts`);
+        }
+      }
     }
   } else {
     errors.push('src/project.ts is missing');

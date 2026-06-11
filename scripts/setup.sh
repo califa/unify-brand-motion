@@ -26,6 +26,19 @@ fail()  { echo -e "${RED}$1${NC}"; exit 1; }
 
 [[ "$(uname)" == "Darwin" ]] || fail "This tool requires macOS."
 
+# ── Git / Xcode Command Line Tools ───────────────────────────
+
+if ! git --version &>/dev/null; then
+  info "Git not found. Installing Xcode Command Line Tools..."
+  info "(A dialog may appear — click 'Install' and wait for it to finish.)"
+  xcode-select --install 2>/dev/null || true
+  # Wait for installation
+  until git --version &>/dev/null; do
+    sleep 5
+  done
+  ok "Xcode CLT installed."
+fi
+
 # ── Homebrew ──────────────────────────────────────────────────
 
 if ! command -v brew &>/dev/null; then
@@ -81,8 +94,14 @@ fi
 # ── npm install (postinstall patches ffmpeg + installs Chromium) ─
 
 cd "$REPO_DIR"
+
+# Ensure animations/ directory exists (gitignored but needed for scenes)
+mkdir -p animations output
+
 info "Installing dependencies..."
-npm install 2>&1 | tail -3
+if ! npm install 2>&1; then
+  fail "npm install failed. Check the output above."
+fi
 
 # ── Verify ────────────────────────────────────────────────────
 
