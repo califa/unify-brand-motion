@@ -80,7 +80,10 @@ LOGO.outer.rotTo         // 45
 ## `src/presets/brand-echo.ts` — Shape Builder + Shaders
 
 ### BACKGROUND
-`COLORS.background` re-exported. Use as `view.fill(BACKGROUND)`.
+`COLORS.background` re-exported. Prefer `applyBackground(view)` which auto-handles transparent render mode.
+
+### applyBackground(view)
+Sets the view background. Uses cream (#FFFEF4) normally, transparent when rendered with `--transparent` flag.
 
 ### TRITONE_SHADER
 WebGL shader object to apply to `tritoneWrapper.shaders()`. Maps greyscale → brand colors.
@@ -116,17 +119,198 @@ Updates all echo copies and blur sub-frames for a given frame.
 
 The transform function is called many times per frame (50 echoes × 16 sub-frames = 800 calls). Keep it fast.
 
+### BrandShape type
+When writing custom update functions, import the type directly:
+```typescript
+import {BrandShape} from '@brand/presets/brand-echo';
+```
+
+### Making a circle
+`createBrandShape` always creates rectangles. To make a circle, set `radius` on both the main rect and all echoes immediately after creation:
+
+```typescript
+const d = 200; // diameter
+const circle = createBrandShape(d, d);
+view.add(circle.group);
+for (const sf of circle.subFrames) {
+  sf.main.radius(d / 2);
+  for (const echo of sf.echoes) echo.radius(d / 2);
+  sf.tritoneWrapper.shaders(TRITONE_SHADER);
+}
+```
+
+### Static group placement
+To fix a shape at a specific canvas position (without animating position in the echo loop), set `group.position` once after creation — before the frame loop:
+
+```typescript
+const shape = createBrandShape(300, 300);
+view.add(shape.group);
+shape.group.position({x: 200, y: -150}); // canvas coords, origin = center
+```
+
+This is different from `updateWithPosition`, which animates position frame-by-frame. Use `group.position` when a shape stays in one place but scale/rotates; use `updateWithPosition` when it moves.
+
+---
+
+## Available Shape Types
+
+All shape types are exported from `@motion-canvas/2d`. All support `fill`, `stroke`, `lineWidth`, `opacity`, `scale`, `rotation`, `position`.
+
+| Component | Extra props | Notes |
+|-----------|------------|-------|
+| `Rect` | `width`, `height`, `radius` | Default for brand shapes |
+| `Path` | `data` (SVG path string) | For logos and custom shapes |
+| `Circle` | `width`, `height` | Use equal width/height for a circle |
+| `Polygon` | `sides`, `radius` | Regular polygon |
+| `Line` | `points[]`, `lineWidth` | Polylines |
+| `Svg` | `svg` (SVG string), `width`, `height` | Full SVG |
+
+No need to verify these in node_modules — they all exist in `@motion-canvas/2d`.
+
+---
+
+## updateWithPosition — Shapes That Move
+
+`updateBrandShape` only handles scale and rotation. For shapes that also translate (slide across canvas), use this function — copy it directly into your scene file:
+
+```typescript
+import {ECHO, MOTION_BLUR} from '@brand/presets/brand';
+import {getControls} from '@brand/controls';
+import {BrandShape} from '@brand/presets/brand-echo';
+
+const FPS = CANVAS.fps;
+
+interface T { scale: number; rotation: number; x: number; y: number; }
+
+function updateWithPosition(shape: BrandShape, frame: number, fn: (f: number) => T) {
+  const numSamples = MOTION_BLUR.samples;
+  const echoFrameStep = ECHO.time * FPS;
+  const shutterFraction = MOTION_BLUR.shutterAngle / 360;
+  const phaseOffset = MOTION_BLUR.shutterPhase / 360;
+  const echoCount = ECHO.count;
+  for (let s = 0; s < shape.subFrames.length; s++) {
+    const sf = shape.subFrames[s];
+    if (s >= numSamples) { sf.container.opacity(0); continue; }
+    sf.container.opacity(1 / numSamples);
+    sf.container.compositeOperation('lighter');
+    const sampleT = numSamples === 1 ? 0.5 : s / (numSamples - 1);
+    const subFrame = frame + phaseOffset + sampleT * shutterFraction;
+    const t = fn(subFrame);
+    sf.main.scale(t.scale); sf.main.rotation(t.rotation);
+    sf.main.position.x(t.x); sf.main.position.y(t.y);
+    for (let i = 0; i < echoCount; i++) {
+      const et = fn(subFrame + (echoCount - i) * echoFrameStep);
+      sf.echoes[i].scale(et.scale); sf.echoes[i].rotation(et.rotation);
+      sf.echoes[i].position.x(et.x); sf.echoes[i].position.y(et.y);
+    }
+  }
+}
+```
+
+x/y are in canvas pixels (origin = center of 1080×1080 canvas). Transform function receives fractional frames.
+
+**Shape limit:** Keep scenes to ≤8 shapes when using `updateWithPosition`. Each shape creates 816 Rect nodes; more exhausts the WebGL context.
+
+---
+
+## Animating SVG Paths (Logos, Custom Shapes)
+
+When the subject is SVG path data (e.g. a logo), use `Path` instead of `Rect`. Since `createBrandShape` creates `Rect` nodes internally, build a custom echo system:
+
+```typescript
+import {makeScene2D, Path, Node} from '@motion-canvas/2d';
+import {applyBackground, TRITONE_SHADER} from '@brand/presets/brand-echo';
+import {CANVAS, ECHO, MOTION_BLUR, STROKE, cubicBezier, EASING} from '@brand/presets/brand';
+import {createControlPanel, getControls} from '@brand/controls';
+
+const FPS = CANVAS.fps;
+const ECHO_COUNT = ECHO.count;      // 50
+const MAX_SAMPLES = MOTION_BLUR.samples; // 16
+
+const echoIntensities = Array.from({length: ECHO_COUNT}, (_, i) =>
+  Math.pow(ECHO.decay, ECHO_COUNT - i),
+);
+
+interface PathShape {
+  group: Node;
+  subFrames: { container: Node; tritoneWrapper: Node; main: Path; echoes: Path[] }[];
+}
+
+function createPathShape(pathData: string): PathShape {
+  const group = new Node({cache: true});
+  const subFrames: PathShape['subFrames'] = [];
+  for (let s = 0; s < MAX_SAMPLES; s++) {
+    const container = new Node({opacity: 0});
+    group.add(container);
+    const tritoneWrapper = new Node({});
+    container.add(tritoneWrapper);
+    const main = new Path({data: pathData, fill: '#ffffff', stroke: STROKE.color, lineWidth: STROKE.width});
+    tritoneWrapper.add(main);
+    const echoes: Path[] = [];
+    for (let i = ECHO_COUNT - 1; i >= 0; i--) {
+      const p = new Path({data: pathData, fill: '#ffffff', stroke: STROKE.color, lineWidth: STROKE.width, opacity: echoIntensities[i]});
+      tritoneWrapper.add(p);
+      echoes[i] = p;
+    }
+    subFrames.push({container, tritoneWrapper, main, echoes});
+  }
+  return {group, subFrames};
+}
+
+// Minimal update — position only. Extend T with scale/rotation if needed.
+interface T { x: number; y: number; }
+
+function updatePathShape(shape: PathShape, frame: number, fn: (f: number) => T) {
+  const c = getControls();
+  const numSamples = c.motionBlur ? MAX_SAMPLES : 1;
+  const echoFrameStep = ECHO.time * FPS;
+  const shutterFraction = MOTION_BLUR.shutterAngle / 360;
+  const phaseOffset = MOTION_BLUR.shutterPhase / 360;
+  for (let s = 0; s < MAX_SAMPLES; s++) {
+    const sf = shape.subFrames[s];
+    if (s >= numSamples) { sf.container.opacity(0); continue; }
+    sf.container.opacity(1 / numSamples);
+    sf.container.compositeOperation(numSamples > 1 ? 'lighter' : 'source-over');
+    const sampleT = numSamples === 1 ? 0.5 : s / (numSamples - 1);
+    const subFrame = frame + phaseOffset + sampleT * shutterFraction;
+    const t = fn(subFrame);
+    sf.main.position.x(t.x); sf.main.position.y(t.y);
+    for (let i = 0; i < ECHO_COUNT; i++) {
+      const et = fn(subFrame + (ECHO_COUNT - i) * echoFrameStep);
+      sf.echoes[i].position.x(et.x); sf.echoes[i].position.y(et.y);
+    }
+  }
+}
+```
+
+**Centering SVG path data on canvas:**
+
+SVG paths have absolute coordinates from their original viewBox. To center a logo on canvas:
+
+```typescript
+const LOGO_W = 163; const LOGO_H = 110; // original SVG viewBox dimensions
+const SCALE = 5;    // scale factor (163×110 → 815×550 at 5×)
+
+const wrapper = new Node({scale: SCALE});
+view.add(wrapper);
+const origin = new Node({x: -(LOGO_W / 2), y: -(LOGO_H / 2)});
+wrapper.add(origin);
+// add path shapes to `origin` — they render at SVG coords, centered on canvas
+```
+
+Position offsets in `updatePathShape` are in pre-scale SVG units. Entry offset must exceed `canvas half-width / SCALE` = `540 / 5 = 108` SVG units to be fully off-screen.
+
 ---
 
 ## Scene Structure
 
 ```tsx
 import {makeScene2D} from '@motion-canvas/2d';
-import {createBrandShape, updateBrandShape, BACKGROUND, TRITONE_SHADER} from '@brand/presets/brand-echo';
+import {createBrandShape, updateBrandShape, TRITONE_SHADER, applyBackground} from '@brand/presets/brand-echo';
 import {CANVAS, cubicBezier} from '@brand/presets/brand';
 
 export default makeScene2D(function* (view) {
-  view.fill(BACKGROUND);
+  applyBackground(view);
 
   // 1. Create shapes
   const shape = createBrandShape(width, height);

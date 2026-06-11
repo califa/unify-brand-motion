@@ -5,7 +5,7 @@ This is the complete `src/scenes/echo.tsx` scene, annotated. Use it as a templat
 ```tsx
 import {makeScene2D} from '@motion-canvas/2d';
 import {
-  BACKGROUND,
+  applyBackground,
   createBrandShape,
   updateBrandShape,
   TRITONE_SHADER,
@@ -74,7 +74,7 @@ function getOuterTransform(frame: number) {
 export default makeScene2D(function* (view) {
   createControlPanel(); // no-op (controls simplified to always-on)
 
-  view.fill(BACKGROUND); // warm cream background
+  applyBackground(view); // supports transparent mode via --transparent flag
 
   // Create shapes — each gets its own echo/blur/tritone pipeline
   const outer = createBrandShape(RECT_SIZE, RECT_SIZE);

@@ -18,7 +18,7 @@
 
 import {chromium} from 'playwright';
 import {spawn, execSync, execFileSync, ChildProcess} from 'child_process';
-import {existsSync, statSync, copyFileSync, unlinkSync, mkdirSync, readFileSync, writeFileSync} from 'fs';
+import {existsSync, statSync, copyFileSync, unlinkSync, mkdirSync, readFileSync, writeFileSync, openSync, closeSync} from 'fs';
 import {dirname, resolve, extname} from 'path';
 import {createConnection} from 'net';
 import {createRequire} from 'module';
@@ -72,16 +72,20 @@ function parseArgs() {
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
       case '--output':
+        if (!args[i + 1] || args[i + 1].startsWith('--')) throw new Error('--output requires a path');
         output = resolve(args[++i]);
         break;
       case '--format':
+        if (!args[i + 1] || args[i + 1].startsWith('--')) throw new Error('--format requires a value');
         format = args[++i] as Format;
         if (!VALID_FORMATS.has(format)) {
           throw new Error(`Invalid format "${format}". Use: ${[...VALID_FORMATS].join(', ')}`);
         }
         break;
       case '--port':
+        if (!args[i + 1] || args[i + 1].startsWith('--')) throw new Error('--port requires a number');
         port = parseInt(args[++i], 10);
+        if (isNaN(port)) throw new Error(`Invalid port: ${args[i]}`);
         break;
       case '--no-server':
         noServer = true;
@@ -123,21 +127,17 @@ function preflight(): {ok: boolean; errors: string[]} {
     errors.push('Vite not installed. Run: npm install');
   }
 
-  // Playwright Chromium
+  // Playwright Chromium — check if the binary exists
   try {
-    execSync('npx playwright install --dry-run chromium 2>&1', {cwd: PROJECT_DIR, encoding: 'utf8'});
-  } catch {
-    // Dry-run not supported on all versions; check for the browser directory instead
-    try {
-      const output = execSync('node -e "const {chromium}=require(\'playwright\');console.log(chromium.executablePath())"', {
-        cwd: PROJECT_DIR, encoding: 'utf8',
-      }).trim();
-      if (!existsSync(output)) {
-        errors.push(`Chromium not found at ${output}. Run: npx playwright install chromium`);
-      }
-    } catch {
-      errors.push('Cannot locate Playwright Chromium. Run: npx playwright install chromium');
+    const chromiumPath = execSync(
+      'node -e "const {chromium}=require(\'playwright\');console.log(chromium.executablePath())"',
+      {cwd: PROJECT_DIR, encoding: 'utf8', timeout: 10_000},
+    ).trim();
+    if (!existsSync(chromiumPath)) {
+      errors.push('Chromium browser not installed. Run: npx playwright install chromium');
     }
+  } catch {
+    errors.push('Cannot locate Playwright Chromium. Run: npx playwright install chromium');
   }
 
   // ffmpeg (for format conversion)
@@ -207,7 +207,7 @@ function validateScene(): boolean {
   try {
     execSync(
       `npx tsc --noEmit --project tsconfig.json`,
-      {cwd: PROJECT_DIR, encoding: 'utf8', stdio: 'pipe'},
+      {cwd: PROJECT_DIR, encoding: 'utf8', stdio: 'pipe', timeout: 30_000},
     );
     console.log('  TypeScript validation passed.');
     return true;
@@ -230,17 +230,26 @@ function validateScene(): boolean {
 
 function acquireLock(): boolean {
   mkdirSync(dirname(LOCKFILE), {recursive: true});
+
+  // Check for existing lock
   if (existsSync(LOCKFILE)) {
     const lockContent = readFileSync(LOCKFILE, 'utf8').trim();
     const lockPid = parseInt(lockContent, 10);
     if (lockPid && isProcessRunning(lockPid)) {
       return false;
     }
-    // Stale lock from a dead process — remove it
     unlinkSync(LOCKFILE);
   }
-  writeFileSync(LOCKFILE, String(process.pid));
-  return true;
+
+  // Atomic create — wx flag fails if file already exists (avoids TOCTOU race)
+  try {
+    const fd = openSync(LOCKFILE, 'wx');
+    writeFileSync(fd, String(process.pid));
+    closeSync(fd);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function releaseLock() {
@@ -303,6 +312,9 @@ async function isPortOpen(port: number): Promise<boolean> {
 async function waitForServer(port: number, timeoutMs = 30_000): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
+    if (serverCrashed) {
+      throw new Error('Vite dev server failed to start. Check the [vite] output above.');
+    }
     if (await isPortOpen(port)) return;
     await new Promise(r => setTimeout(r, 500));
   }
