@@ -115,7 +115,7 @@ export function updateBrandShape(
   getTransform: (frame: number) => {scale: number; rotation: number},
 ): void {
   const c = getControls();
-  const numSamples = c.motionBlur ? MAX_SAMPLES : 1;
+  const numSamples = c.motionBlur ? MOTION_BLUR.samples : 1;
   const echoFrameStep = ECHO.time * fps;
   const shutterFraction = MOTION_BLUR.shutterAngle / 360;
   const phaseOffset = MOTION_BLUR.shutterPhase / 360;

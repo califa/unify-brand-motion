@@ -1,16 +1,15 @@
 ---
 name: brand-animation
 description: |
-  Generate brand animations with Echo + Tritone + Motion Blur effects using Motion Canvas.
-  Accepts natural language descriptions of abstract shape animations, writes the scene code,
-  and renders to MP4/WebM/GIF/MOV.
+  Generates brand animations with Unify's Echo + Tritone + Motion Blur effects using Motion
+  Canvas. Takes natural language descriptions of abstract shape animations, writes the scene
+  code, and renders to MP4/WebM/GIF/MOV. Covers any request for motion graphics, video assets,
+  animated logos, loading animations, or visual effects for the Unify brand — including
+  requests that don't explicitly mention "brand animation," such as "make a video for the
+  deck," "I need a loading animation," or "create a motion graphic for the website."
   **Triggers:** "brand animation", "render brand", "logo animation", "motion brand",
   "brand video", "brand effect", "brand motion", "motion asset",
   "unify animation", "unify effect", "unify motion"
-  Use this skill whenever someone wants to create any kind of motion graphic, video asset,
-  animated logo, loading animation, or visual effect for the Unify brand — even if they
-  don't say "brand animation" explicitly. If the request involves shapes moving with trails
-  or echoes, or any video/GIF output of geometric animation, this is the right skill.
 ---
 
 # Brand Animation Generator
@@ -56,6 +55,20 @@ output/       ← rendered videos land here (gitignored)
 ```
 
 The `@brand/` import alias resolves to `src/`.
+
+## Examples
+
+**Example 1 — Simple entrance:**
+User: "A square that grows in and rotates 90 degrees"
+→ Single `createBrandShape(500, 500)`, transform scales 0→1 and rotates 0→90° over ~30 frames, holds for remaining duration. Uses `EASING.inner` for the S-curve.
+
+**Example 2 — Two-shape stagger:**
+User: "The Unify logo — inner square appears first, outer square follows"
+→ Two `createBrandShape` calls. Inner starts at frame 11 (scale 0→1, rotate 0→90°), outer starts at frame 28 (scale 0→1.51, rotate 0→45°). Outer added to view first (behind inner).
+
+**Example 3 — Slide with spin:**
+User: "A circle slides in from the left and settles in the center"
+→ `createBrandShape(d, d)` with `radius(d/2)` on all rects. Uses `updateWithPosition` (from `references/brand-api.md`). Transform returns `{x: -600→0, y: 0, scale: 1, rotation: 0→360}` — the spin during travel makes the echo trail richer.
 
 ## Workflow
 
@@ -117,15 +130,15 @@ export default makeScene2D(function* (view) {
 });
 ```
 
-**Rules:**
-- `applyBackground(view)` — supports `--transparent` mode. Never use `view.fill(BACKGROUND)` directly.
-- Each shape needs its own `createBrandShape(width, height)`. For multiple shapes, add them in back-to-front order and stagger their `animStart` values (e.g., shape 1 starts at frame 10, shape 2 at frame 25).
+**Rules and why they matter:**
+- `applyBackground(view)` — use this instead of `view.fill(BACKGROUND)` because it automatically handles transparent render mode via the `--transparent` flag. Direct `view.fill()` bypasses that mechanism.
+- Each shape needs its own `createBrandShape(width, height)` because each one builds 816 internal Rect nodes for the echo/blur pipeline — they can't be shared. For multiple shapes, add them in back-to-front order and stagger their `animStart` values (e.g., shape 1 at frame 10, shape 2 at frame 25).
 - Frame numbers = seconds × FPS. At 30fps: frame 10 ≈ 0.33s, frame 30 = 1s, frame 60 = 2s.
-- Transform functions receive fractional frame numbers → return `{scale, rotation}`.
-- `scale: 0` hides the shape. Use this before the animation starts.
-- `yield` advances one frame. The loop must run exactly `TOTAL_FRAMES` iterations.
-- Apply `TRITONE_SHADER` to all sub-frames before the frame loop.
-- Easing: `cubicBezier(0.89, 0, 0.11, 1, t)` (sharp S-curve) or `cubicBezier(0.2, 0, 0.11, 1, t)` (fast attack).
+- Transform functions receive fractional frame numbers (the echo system samples between frames) → return `{scale, rotation}`.
+- `scale: 0` hides the shape. Use this before `animStart` so the shape is invisible until its entrance — the echo trail captures the transition from 0→1, which creates the dramatic "arrival" smear.
+- `yield` advances one frame. The loop must run exactly `TOTAL_FRAMES` iterations — fewer means the video ends early, more means unnecessary render time.
+- Apply `TRITONE_SHADER` to all sub-frames before the frame loop — this maps the greyscale echo composites to the brand's 3-color palette (dark → orange → cream).
+- Easing: `cubicBezier(0.89, 0, 0.11, 1, t)` (sharp S-curve — snappy in and out) or `cubicBezier(0.2, 0, 0.11, 1, t)` (fast attack, slow settle — good for secondary shapes that follow a leader).
 
 **Layer transforms for richer motion.** A shape sliding from A to B is more compelling when rotation and scale change simultaneously:
 - **Slide + spin**: rotate 45–90° during the position move.

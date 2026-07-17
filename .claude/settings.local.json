@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cp /Users/joel/.claude/skills/brand-animation/SKILL.md /Users/joel/vibe/motion-brand/skill/SKILL.md)",
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)",
+      "Bash(git push:*)"
+    ]
+  }
+}

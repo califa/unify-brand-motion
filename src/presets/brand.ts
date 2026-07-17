@@ -7,8 +7,8 @@
 
 // ─── Colors ──────────────────────────────────────────────────
 export const COLORS = {
-  /** Near-white background / highlights — #FFFEF4 */
-  background: '#FFFEF4',
+  /** Near-white background / highlights — #FFFFFA */
+  background: '#FFFFFA',
   /** Red-orange midtone accent — #FE3C01 */
   accent: '#FE3C01',
   /** Dark brown-black shadows — #241E20 */
@@ -59,10 +59,8 @@ export const MOTION_BLUR = {
   shutterAngle: 180,
   /** Shutter phase in degrees (-90° = centered on frame) */
   shutterPhase: -90,
-  /** Number of sub-frame samples for blur averaging.
-   *  Set to 1 — sub-frame stacking breaks echo fill occlusion.
-   *  Motion blur needs a different approach (post-process directional blur). */
-  samples: 16,
+  /** Number of sub-frame samples for blur averaging (16 = smooth motion blur). */
+  samples: 16 as number,
 } as const;
 
 // ─── Easing ──────────────────────────────────────────────────
